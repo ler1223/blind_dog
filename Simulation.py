@@ -132,14 +132,14 @@ class Environment:
             distance = np.linalg.norm(target.position - dog.position)
             if distance < (dog.size + target.radius):
                 target_reached = True
-            else:
-                # Награда за приближение
-                old_distance = np.linalg.norm(target.position - last_position)
-                distance_reward = (old_distance - distance_to_target) * 0.1
-                reward += max(distance_reward, -1.0)  # Минимальный штраф
+            # else:
+            #     # Награда за приближение
+            #     old_distance = np.linalg.norm(target.position - last_position)
+            #     distance_reward = (old_distance - distance_to_target) * 0.1
+            #     reward += max(distance_reward, -1.0)  # Минимальный штраф
 
         if target_reached:
-            reward += 10.0
+            reward += 100.0
             target = self.create_target(target.id + 1)
 
         # Штраф за столкновение с границей

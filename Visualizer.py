@@ -185,3 +185,23 @@ class SimpleAnimation:
     def show(self):
         """Показывает анимацию."""
         self.visualizer.show()
+
+
+def animation(individual, env, interval_animation=10, device="cpu"):
+    """Демонстрация анимации."""
+    print("\n=== Simple Animation Demo ===")
+    dog, target = env.reset()
+
+    # Создаем анимацию
+    anim = SimpleAnimation(
+        env=env,
+        dog=dog,
+        individual=individual,
+        target=target,
+        steps=200,
+        interval=interval_animation,
+        device=device
+    )
+
+    print("Animation created. Showing window...")
+    anim.show()

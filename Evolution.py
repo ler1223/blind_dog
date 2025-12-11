@@ -1,3 +1,5 @@
+import copy
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -33,32 +35,34 @@ class EvolutionaryNetwork(nn.Module):
     def forward(self, x):
         return self.net(x)
 
-    def get_params_vector(self) -> np.ndarray:
+    def get_params_vector(self) -> torch.Tensor:
+        """Возвращает вектор параметров (уже на нужном устройстве)"""
         if self.params_vector is None:
             self.update_params_vector()
         return self.params_vector
 
     def update_params_vector(self):
         """Обновляет вектор параметров из весов сети"""
-        params = []
+        params_list = []
         for param in self.parameters():
-            params.append(param.data.cpu().numpy().flatten())
-        self.params_vector = np.concatenate(params)
+            params_list.append(param.data.view(-1))
 
-    def set_params_from_vector(self, vector: np.ndarray):
+        if params_list:
+            self.params_vector = torch.cat(params_list).clone()
+        else:
+            self.params_vector = torch.tensor([], device=self.device)
+
+    def set_params_from_vector(self, vector: torch.Tensor):
         """Устанавливает параметры сети из вектора"""
         idx = 0
         for param in self.parameters():
             size = param.data.numel()
             shape = param.data.shape
-
             # Извлекаем параметры из вектора
-            param_data = vector[idx:idx + size].reshape(shape)
-            param.data = torch.FloatTensor(param_data).to(param.device)
-
+            param_data = vector[idx:idx + size].view(shape)
+            param.data.copy_(param_data)
             idx += size
-
-        self.params_vector = vector.copy()
+        self.params_vector = vector.clone()
 
 
 class Individual:
@@ -66,9 +70,10 @@ class Individual:
     Индивидуум (собака) в эволюционном алгоритме
     """
 
-    def __init__(self, network: EvolutionaryNetwork, dna: np.ndarray = None,  device="cpu"):
+    def __init__(self, network: EvolutionaryNetwork, dna=None,  device="cpu"):
         self.device = device
         self.network = network.to(self.device)
+        self.network.params_vector = None
         self.dna = dna if dna is not None else network.get_params_vector()
         self.fitness = 0.0
         self.age = 0
@@ -79,16 +84,16 @@ class Individual:
             'collisions': 0,
             'distance_traveled': 0.0
         }
+        self.network.set_params_from_vector(self.dna)
 
     def evaluate(self, simulation_env, num_episodes=3):
         """
         Оценка фитнеса индивидуума
         """
         total_fitness = 0.0
-        self.network.set_params_from_vector(self.dna)
 
         for episode in range(num_episodes):
-            fitness, stats = self._run_episode(simulation_env, 200)
+            fitness, stats = self._run_episode(simulation_env, 500)
             total_fitness += fitness
 
             # Обновляем статистику
@@ -126,32 +131,32 @@ class Individual:
 
         return fitness, stats
 
-    def mutate(self, mutation_rate=0.1, mutation_strength=0.3):
+    def mutate(self, mutation_rate=0.01, mutation_strength=0.01):
         """
-        Мутация DNA индивидуума
+        Мутация DNA индивидуума с использованием PyTorch
         """
-        new_dna = self.dna.copy()
+        with torch.no_grad():
+            new_dna = self.dna.clone()
 
-        # Гауссовская мутация
-        mask = np.random.random(len(new_dna)) < mutation_rate
-        mutation = np.random.randn(len(new_dna)) * mutation_strength
-        new_dna[mask] += mutation[mask]
+            mask = torch.rand_like(new_dna) < mutation_rate
+            mutation = torch.randn_like(new_dna) * mutation_strength
+            new_dna[mask] += mutation[mask]
 
-        # Ограничиваем значения
-        new_dna = np.clip(new_dna, -1, 1)
+            # Ограничиваем значения
+            new_dna = torch.clamp(new_dna, -1, 1)
 
         return Individual(self.network, new_dna, device=self.device)
 
     def crossover(self, other: 'Individual') -> 'Individual':
         """
-        Скрещивание двух индивидуумов
+        Скрещивание двух индивидуумов с использованием PyTorch
         """
-        # Uniform crossover
-        mask = np.random.random(len(self.dna)) > 0.5
-        child_dna = self.dna.copy()
-        child_dna[mask] = other.dna[mask]
+        with torch.no_grad():
+            mask = torch.rand_like(self.dna) > 0.5
+            child_dna = self.dna.clone()
+            child_dna[mask] = other.dna[mask]
 
-        return Individual(self.network, child_dna, self.device)
+        return Individual(self.network, child_dna, device=self.device)
 
 
 class Species:
@@ -196,7 +201,7 @@ class Species:
 
         # Элитизм: сохраняем лучших
         self.members.sort(key=lambda x: x.fitness, reverse=True)
-        elite_count = min(2, len(self.members))
+        elite_count = min(5, len(self.members))
         offspring.extend(self.members[:elite_count])
 
         # Скрещивание и мутация
@@ -207,20 +212,20 @@ class Species:
                 parent1, parent2 = sorted(parents, key=lambda x: x.fitness, reverse=True)[:2]
 
                 # Скрещивание
-                if np.random.random() < 0.7:  # 70% chance crossover
+                if np.random.random() < 0.5:  # 70% chance crossover
                     child = parent1.crossover(parent2)
                 else:
-                    child = Individual(parent1.network, parent1.dna.copy(), device=self.device)
+                    child = Individual(parent1.network, parent1.dna.clone(), device=self.device)
 
                 # Мутация
-                if np.random.random() < 0.8:  # 80% chance mutation
-                    mutation_rate = np.random.uniform(0.05, 0.2)
-                    mutation_strength = np.random.uniform(0.1, 0.5)
+                if np.random.random() < 0.4:  # 80% chance mutation
+                    mutation_rate = np.random.uniform(0.05, 0.1)
+                    mutation_strength = np.random.uniform(0.05, 0.1)
                     child = child.mutate(mutation_rate, mutation_strength)
             else:
                 # Клонирование с мутацией
                 parent = self.members[0]
-                child = parent.mutate(mutation_rate=0.2, mutation_strength=0.4)
+                child = parent.mutate(mutation_rate=0.1, mutation_strength=0.1)
 
             child.age = 0
             offspring.append(child)
@@ -242,7 +247,8 @@ class EvolutionaryAlgorithm:
                  compatibility_threshold=3.0,
                  species_target=10,
                  device='cpu',
-                 render=True):
+                 render=True,
+                 init_population=None):
 
         self.population_size = population_size
         self.generations = generations
@@ -262,15 +268,19 @@ class EvolutionaryAlgorithm:
         self.best_fitness_history = []
         self.avg_fitness_history = []
         self.species_count_history = []
+        self.init_population = init_population
 
         # Инициализируем популяцию
-        self._initialize_population()
+        self._initialize_population(self.init_population)
 
-    def _initialize_population(self):
+    def _initialize_population(self, init_population):
         """Инициализация начальной популяции"""
         print("Initializing population...")
 
-        for i in range(self.population_size):
+        if init_population is not None:
+            for individual in init_population:
+                self.population.append(individual)
+        for i in range(self.population_size - len(self.population)):
             # Создаем нового индивидуума
             network = EvolutionaryNetwork(
                 self.network_template.net[0].in_features,
@@ -279,7 +289,7 @@ class EvolutionaryAlgorithm:
             )
 
             # Случайная инициализация весов
-            dna = np.random.randn(len(network.get_params_vector())) * 0.1
+            dna = torch.randn_like(network.get_params_vector()) * 0.1
             individual = Individual(network, dna, self.device)
 
             self.population.append(individual)
@@ -293,7 +303,7 @@ class EvolutionaryAlgorithm:
         (упрощенная версия NEAT расстояния)
         """
         # Евклидово расстояние между DNA векторами
-        dna_distance = np.linalg.norm(ind1.dna - ind2.dna)
+        dna_distance = torch.norm(ind1.dna.to(self.device) - ind2.dna.to(self.device))
 
         # Нормализуем по размеру DNA
         normalized_distance = dna_distance / np.sqrt(len(ind1.dna))
@@ -365,7 +375,7 @@ class EvolutionaryAlgorithm:
     def _natural_selection(self):
         """Естественный отбор и создание нового поколения"""
         # Удаляем старые виды
-        max_stagnation = 15
+        max_stagnation = 100
         self.species = [s for s in self.species if s.stagnation < max_stagnation]
 
         # Рассчитываем скорректированный фитнес
@@ -391,7 +401,7 @@ class EvolutionaryAlgorithm:
             offspring_count = max(2, offspring_count)  # Минимум 2 потомка на вид
 
             # Отбор внутри вида (удаляем худших)
-            species.cull(survival_rate=0.4)
+            species.cull(survival_rate=0.5)
 
             # Размножение
             offspring = species.reproduce(offspring_count)
@@ -400,7 +410,7 @@ class EvolutionaryAlgorithm:
         # Если популяция меньше нужного размера, добавляем случайных индивидуумов
         while len(new_population) < self.population_size:
             parent = np.random.choice(self.population)
-            child = parent.mutate(mutation_rate=0.3, mutation_strength=0.5)
+            child = parent.mutate(mutation_rate=0.01, mutation_strength=0.02)
             new_population.append(child)
 
         # Обрезаем если больше
@@ -464,6 +474,8 @@ class EvolutionaryAlgorithm:
             # 1. Оценка фитнеса
             print(f"\nGeneration {gen}: Evaluating population...")
             self._evaluate_population(simulation_env, parallel=False)
+            for i in self.population:
+                print(i.fitness)
 
             # 2. Сбор статистики
             self._collect_statistics()

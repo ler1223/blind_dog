@@ -53,7 +53,7 @@ class BasicAlgorithm:
         print("Animation created. Showing window...")
         animation.show()
 
-    def run(self, epochs=10, count_steps=200):
+    def run(self, epochs=10, count_steps=200, name="default"):
         network = Evolution.EvolutionaryNetwork(self.input_size, 128, self.output_size)
         individual = Evolution.Individual(network, device=self.device)
         optimizer = torch.optim.Adam(individual.network.parameters(), lr=0.0001)
@@ -100,7 +100,10 @@ class BasicAlgorithm:
                 epoch_loss += loss.item()
 
             avg_loss = epoch_loss / num_batches
+            if avg_loss < 0.008:
+                torch.save(individual.network.state_dict(), "./pretraining_model/" + str(name) + '_state_dict.pth')
+                break
             print(avg_loss)
-            self.animation(individual, count_steps*4)
+            self.animation(individual, 200)
 
         return individual
