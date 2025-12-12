@@ -28,7 +28,7 @@ class Dog:
 class Environment:
     """
     Среда для эволюционного алгоритма.
-    Моделирует поле с собаками, целями и физикой взаимодействий.
+    Моделирует поле с собакой целью и физикой взаимодействия.
     """
 
     def __init__(self,
@@ -70,8 +70,8 @@ class Environment:
             dog_size: Размер собаки (радиус).
 
         Returns:
-            dog_obj: Объект собаки с начальным состоянием.
-            targets: Список целей.
+            dog: Объект собаки с начальным состоянием.
+            target: цель.
         """
         # Создаем собаку
         dog = Dog(position=(dog_position if dog_position is not None else self._random_position()), size=dog_size)
@@ -93,7 +93,7 @@ class Environment:
 
         Returns:
             dog: Обновленный объект собаки.
-            targets: Обновленная цель.
+            target: Обновленная цель.
             reward: Награда за шаг.
         """
 
@@ -213,13 +213,6 @@ class Environment:
             target.position / (self.field_size / 2),
             boundary_dist
         ])
-
-    def render(self, dog, step=None):
-        if step is not None:
-            print(f"\nStep {step}:")
-        print(f"  Dog position: ({dog.position[0]:.2f}, {dog.position[1]:.2f})")
-        print(f"  Dog velocity: ({dog.velocity[0]:.2f}, {dog.velocity[1]:.2f})")
-        print(f"  angle velocity: ({dog.angle_velocity[0]:.2f}, {dog.angle_velocity[1]:.2f})")
 
     def get_stats(self):
         """Возвращает статистику среды."""

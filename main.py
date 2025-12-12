@@ -15,10 +15,9 @@ def start_evolution_algorithm():
 
     # Создаем и запускаем эволюционный алгоритм
     ea = Evolution.EvolutionaryAlgorithm(
+        network_template=Evolution.EvolutionaryNetwork(10, 128, 2),
         population_size=10,
         generations=100,
-        input_size=10,
-        output_size=2,
         interval_animation=10,
         render=True,
         device="cuda"
@@ -52,7 +51,7 @@ def start_combined_algorithm(population_size=10):
     env = Simulation.Environment(
         field_size=50.0,
         num_targets=50,
-        max_episode_steps=500,
+        max_episode_steps=300,
         seed=42
     )
 
@@ -68,18 +67,19 @@ def start_combined_algorithm(population_size=10):
         init_individuals.append(best_individual)
 
     ea = Evolution.EvolutionaryAlgorithm(
-        population_size=100,
+        init_individuals[0].network,
+        population_size=200,
         generations=100,
-        input_size=10,
-        output_size=2,
+        steps_simulation=300,
         interval_animation=10,
-        render=True,
+        render=False,
         device="cuda",
-        init_population=init_individuals
+        init_population=init_individuals,
+        save_animation_gen_dir="anim_generation"
     )
 
     # Запускаем обучение
-    best_individual = ea.run(env, checkpoint_interval=10)
+    best_individual = ea.run(env, checkpoint_interval=1000)
 
     print(f"\nBest individual fitness: {best_individual.fitness:.2f}")
     print(f"Targets reached: {best_individual.stats['targets_reached']:.1f}")

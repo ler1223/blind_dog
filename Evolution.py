@@ -75,6 +75,7 @@ class Individual:
         self.network = network.to(self.device)
         self.network.params_vector = None
         self.dna = dna if dna is not None else network.get_params_vector()
+        self.dna.to(device=self.device)
         self.fitness = 0.0
         self.age = 0
         self.species_id = -1
@@ -86,14 +87,14 @@ class Individual:
         }
         self.network.set_params_from_vector(self.dna)
 
-    def evaluate(self, simulation_env, num_episodes=3):
+    def evaluate(self, simulation_env, num_episodes=3, count_steps=300):
         """
         Оценка фитнеса индивидуума
         """
         total_fitness = 0.0
 
         for episode in range(num_episodes):
-            fitness, stats = self._run_episode(simulation_env, 500)
+            fitness, stats = self._run_episode(simulation_env, count_steps)
             total_fitness += fitness
 
             # Обновляем статистику
@@ -107,18 +108,22 @@ class Individual:
 
         return self.fitness
 
+    def predict(self, state):
+        state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+        predict = self.network.forward(state)
+        if self.device == "cuda":
+            predict = predict.cpu()
+        accelerate = predict.squeeze(0)
+        accelerate, angle_acceleration = accelerate[0], accelerate[1]
+        return accelerate, angle_acceleration
+
     def _run_episode(self, env, count_steps) -> Tuple[float, dict]:
         dog, target = env.reset()
         fitness = 0
         for i in range(count_steps):
             with torch.no_grad():
                 state = env.get_state(dog, target)
-                state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
-                predict = self.network.forward(state)
-                if self.device == "cuda":
-                    predict = predict.cpu()
-                accelerate = predict.squeeze(0)
-                accelerate, angle_acceleration = accelerate[0], accelerate[1]
+                accelerate, angle_acceleration = self.predict(state)
             dog, targets, reward = env.step(dog, target, accelerate, angle_acceleration)
             fitness += reward
 
@@ -185,8 +190,6 @@ class Species:
 
     def calculate_adjusted_fitness(self):
         """Рассчитывает скорректированный фитнес"""
-        for member in self.members:
-            member.adjusted_fitness = member.fitness / len(self.members)
         self.adjusted_fitness_sum = sum(m.fitness for m in self.members) / len(self.members)
 
     def cull(self, survival_rate=0.5):
@@ -201,7 +204,7 @@ class Species:
 
         # Элитизм: сохраняем лучших
         self.members.sort(key=lambda x: x.fitness, reverse=True)
-        elite_count = min(5, len(self.members))
+        elite_count = min(2, len(self.members))
         offspring.extend(self.members[:elite_count])
 
         # Скрещивание и мутация
@@ -212,20 +215,20 @@ class Species:
                 parent1, parent2 = sorted(parents, key=lambda x: x.fitness, reverse=True)[:2]
 
                 # Скрещивание
-                if np.random.random() < 0.5:  # 70% chance crossover
+                if np.random.random() < 0.5:
                     child = parent1.crossover(parent2)
                 else:
                     child = Individual(parent1.network, parent1.dna.clone(), device=self.device)
 
                 # Мутация
-                if np.random.random() < 0.4:  # 80% chance mutation
+                if np.random.random() < 0.4:
                     mutation_rate = np.random.uniform(0.05, 0.1)
                     mutation_strength = np.random.uniform(0.05, 0.1)
                     child = child.mutate(mutation_rate, mutation_strength)
             else:
                 # Клонирование с мутацией
                 parent = self.members[0]
-                child = parent.mutate(mutation_rate=0.1, mutation_strength=0.1)
+                child = parent.mutate(mutation_rate=0.3, mutation_strength=0.3)
 
             child.age = 0
             offspring.append(child)
@@ -239,27 +242,30 @@ class EvolutionaryAlgorithm:
     """
 
     def __init__(self,
+                 network_template,
                  population_size=100,
                  generations=100,
+                 steps_simulation=300,
                  interval_animation=100,
-                 input_size=8,
-                 output_size=2,
                  compatibility_threshold=3.0,
                  species_target=10,
                  device='cpu',
                  render=True,
-                 init_population=None):
+                 init_population=None,
+                 save_animation_gen_dir="anim_generation"):
 
         self.population_size = population_size
         self.generations = generations
+        self.steps_simulation = steps_simulation
         self.interval_animation = interval_animation
         self.compatibility_threshold = compatibility_threshold
         self.species_target = species_target
         self.device = device
         self.render = render
+        self.save_animation_gen_dir = save_animation_gen_dir
 
         # Инициализация популяции
-        self.network_template = EvolutionaryNetwork(input_size, 128, output_size)
+        self.network_template = network_template
         self.population: List[Individual] = []
         self.species: List[Species] = []
         self.generation = 0
@@ -365,7 +371,7 @@ class EvolutionaryAlgorithm:
     def _evaluate_sequential(self, simulation_env):
         """Последовательная оценка"""
         for individual in self.population:
-            individual.evaluate(simulation_env, num_episodes=3)
+            individual.evaluate(simulation_env, num_episodes=3, count_steps=self.steps_simulation)
 
     def _evaluate_parallel(self, simulation_env):
         """Параллельная оценка с использованием multiprocessing"""
@@ -401,7 +407,7 @@ class EvolutionaryAlgorithm:
             offspring_count = max(2, offspring_count)  # Минимум 2 потомка на вид
 
             # Отбор внутри вида (удаляем худших)
-            species.cull(survival_rate=0.5)
+            species.cull(survival_rate=0.3)
 
             # Размножение
             offspring = species.reproduce(offspring_count)
@@ -410,7 +416,7 @@ class EvolutionaryAlgorithm:
         # Если популяция меньше нужного размера, добавляем случайных индивидуумов
         while len(new_population) < self.population_size:
             parent = np.random.choice(self.population)
-            child = parent.mutate(mutation_rate=0.01, mutation_strength=0.02)
+            child = parent.mutate(mutation_rate=0.2, mutation_strength=0.2)
             new_population.append(child)
 
         # Обрезаем если больше
@@ -442,25 +448,6 @@ class EvolutionaryAlgorithm:
         print(f"Targets reached (best): {best_individual.stats['targets_reached']:.1f}")
         print(f"Collisions (best): {best_individual.stats['collisions']:.1f}")
 
-    def animation(self, individual, env):
-        """Демонстрация анимации."""
-        print("\n=== Simple Animation Demo ===")
-        dog, target = env.reset()
-
-        # Создаем анимацию
-        animation = Visualizer.SimpleAnimation(
-            env=env,
-            dog=dog,
-            individual=individual,
-            target=target,
-            steps=200,
-            interval=self.interval_animation,
-            device=self.device
-        )
-
-        print("Animation created. Showing window...")
-        animation.show()
-
     def run(self, simulation_env, checkpoint_interval=10):
         """
         Запуск эволюционного алгоритма
@@ -491,8 +478,9 @@ class EvolutionaryAlgorithm:
 
                 # 5. Видообразование
                 self._speciate()
-            if self.render:
-                self.animation(max(self.population, key=lambda x: x.fitness), simulation_env)
+            best_individual = max(self.population, key=lambda x: x.fitness)
+            Visualizer.animation(best_individual, simulation_env, render=self.render, device=self.device,
+                                 save_path=self.save_animation_gen_dir+f"/generation_{gen}")
 
         # Возвращаем лучшего индивидуума
         best_individual = max(self.population, key=lambda x: x.fitness)

@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import torch
 import BasicTrain
+import matplotlib.animation
 
 
 class MinimalVisualizer:
@@ -186,8 +187,18 @@ class SimpleAnimation:
         """Показывает анимацию."""
         self.visualizer.show()
 
+    def save(self, save_path, fps=30):
+        """
+        Сохраняет анимацию в файл.
+        Args:
+            save_path: путь сохранения
+            fps: Кадров в секунду
+        """
+        self.ani.save(save_path + ".gif", writer="pillow", dpi=100, fps=fps)
+        plt.close(self.visualizer.fig)
 
-def animation(individual, env, interval_animation=10, device="cpu"):
+
+def animation(individual, env, interval_animation=10, device="cpu", render=True, save_path=None):
     """Демонстрация анимации."""
     print("\n=== Simple Animation Demo ===")
     dog, target = env.reset()
@@ -202,6 +213,8 @@ def animation(individual, env, interval_animation=10, device="cpu"):
         interval=interval_animation,
         device=device
     )
-
-    print("Animation created. Showing window...")
-    anim.show()
+    if render:
+        print("Animation created. Showing window...")
+        anim.show()
+    if save_path is not None:
+        anim.save(save_path)
