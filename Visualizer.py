@@ -198,7 +198,7 @@ class SimpleAnimation:
         plt.close(self.visualizer.fig)
 
 
-def animation(individual, env, interval_animation=10, device="cpu", render=True, save_path=None):
+def animation(individual, env, interval_animation=10, device="cpu", count_steps=200, render=True, save_path=None):
     """Демонстрация анимации."""
     print("\n=== Simple Animation Demo ===")
     dog, target = env.reset()
@@ -209,7 +209,7 @@ def animation(individual, env, interval_animation=10, device="cpu", render=True,
         dog=dog,
         individual=individual,
         target=target,
-        steps=200,
+        steps=count_steps,
         interval=interval_animation,
         device=device
     )

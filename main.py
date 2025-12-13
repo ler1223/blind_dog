@@ -67,16 +67,23 @@ def start_combined_algorithm(env, population_size=10):
 
 
 def start_ddpg(env, epoch=100):
-    ddpg = DDPG.DDPG(gamma=0.99, tau=0.001, hidden_size=256, state_size=14, action_size=2, device="cuda")
+    ddpg = DDPG.DDPG(gamma=0.99, tau=0.003, hidden_size=512, state_size=14, action_size=2, device="cuda")
     ddpg.train(env=env, epochs=epoch, count_steps=300)
+
+
+def save_model_run(env, path, count_steps):
+    network = torch.load(path, weights_only=False)
+    individual = Evolution.Individual(network, device="cuda")
+    Visualizer.animation(individual=individual, env=env, device="cuda", render=True, count_steps=count_steps)
 
 
 if __name__ == '__main__':
     env = Simulation.Environment(
-        field_size=50.0
+        field_size=200.0
     )
 
     # start_basic_algorithm(env)
     # start_evolution_algorithm(env)
     # start_combined_algorithm(env, population_size=10)
-    start_ddpg(env, 10000)
+    start_ddpg(env, 3000)
+    # save_model_run(env=env, path="pretraining_model/DDPG_1500612.3310.pth", count_steps=1000)

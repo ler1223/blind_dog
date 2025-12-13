@@ -39,6 +39,7 @@ class Environment:
         self.seed = seed
         self.velocity_damping = 0.98
         self.angular_damping = 0.95
+        self.last_position = None
 
         # Инициализация генератора случайных чисел
         if seed is not None:
@@ -73,7 +74,7 @@ class Environment:
         """
         # Создаем собаку
         dog = Dog(position=(dog_position if dog_position is not None else self._random_position()), size=dog_size)
-
+        self.last_position = None
         # Создаем цели
         target = self.create_target(0)
 
@@ -105,7 +106,6 @@ class Environment:
 
         dog.acceleration = torch.cat((torch.cos(dog.angle) * acceleration, torch.sin(dog.angle) * acceleration))
 
-        last_position = dog.position.clone()
         distance_to_target = np.linalg.norm(target.position - dog.position)
 
         # Применяем ускорение (с ограничением)
@@ -126,7 +126,7 @@ class Environment:
         collision = self._check_boundary_collision(dog)
         target_reached = False
 
-        reward = -0.1
+        reward = -0.2
 
         if target.active:
             distance = np.linalg.norm(target.position - dog.position)
@@ -134,9 +134,12 @@ class Environment:
                 target_reached = True
             else:
                 # Награда за приближение
-                old_distance = np.linalg.norm(target.position - last_position)
-                distance_reward = (old_distance - distance_to_target) * 0.1
-                reward += max(distance_reward, -0.2) - distance / self.field_size
+                if self.last_position is not None:
+                    old_distance = np.linalg.norm(target.position - self.last_position)
+                    distance_reward = (old_distance - distance_to_target) * 0.1
+                    reward += max(distance_reward, -0.1) - distance / self.field_size
+
+        self.last_position = dog.position.clone()
 
         if target_reached:
             reward += 50.0
@@ -189,27 +192,6 @@ class Environment:
 
         return collision
 
-    # def get_state(self, dog, target):
-    #     # Нормализованные координаты
-    #     dog_pos = dog.position / (self.field_size / 2)
-    #     dog_vel = dog.velocity / dog.max_speed
-    #
-    #     # Расстояние до границ
-    #     half_field = self.field_size / 2
-    #     boundary_dist = np.array([
-    #         (half_field - abs(dog.position[0])) / half_field,
-    #         (half_field - abs(dog.position[1])) / half_field
-    #     ])
-    #
-    #     return np.concatenate([
-    #         dog_pos,
-    #         dog_vel,
-    #         dog.angle,
-    #         dog.angle_velocity,
-    #         target.position / (self.field_size / 2),
-    #         boundary_dist
-    #     ])
-
     def get_state(self, dog, target):
         """
         Получает вектор состояния для нейронной сети.
@@ -233,10 +215,10 @@ class Environment:
 
         # Вектор к цели (относительный)
         to_target = target.position - dog.position
-        norm_to_target = to_target.numpy() / (half_field * 2)  # Нормализация
+        norm_to_target = to_target.numpy() / self.field_size  # Нормализация
 
         # Расстояние до цели (нормализованное)
-        distance = torch.norm(to_target).item() / (half_field * 2)
+        distance = torch.norm(to_target).item() / self.field_size
 
         # Расстояние до границ
         boundary_x = (half_field - abs(dog.position[0].item())) / half_field
