@@ -33,14 +33,12 @@ class Environment:
 
     def __init__(self,
                  field_size=10.0,
-                 num_targets=5,
-                 max_episode_steps=500,
                  seed=None):
 
         self.field_size = field_size  # Размер квадратного поля (от -field_size/2 до field_size/2)
-        self.num_targets = num_targets
-        self.max_episode_steps = max_episode_steps
         self.seed = seed
+        self.velocity_damping = 0.98
+        self.angular_damping = 0.95
 
         # Инициализация генератора случайных чисел
         if seed is not None:
@@ -96,23 +94,25 @@ class Environment:
             target: Обновленная цель.
             reward: Награда за шаг.
         """
+        dog.velocity *= self.velocity_damping
+        dog.angle_velocity *= self.angular_damping
 
         dog.angle_acceleration = angle_acceleration
-        dog.angle_velocity += dog.angle_acceleration
+        dog.angle_velocity += dog.angle_acceleration * 0.5
         dog.angle_velocity = torch.clip(dog.angle_velocity, -0.7, 0.7)
-        dog.angle += dog.angle_velocity * 0.1
+        dog.angle += dog.angle_velocity * 0.5
         dog.angle = (dog.angle + math.pi) % (2 * math.pi) - math.pi
 
         dog.acceleration = torch.cat((torch.cos(dog.angle) * acceleration, torch.sin(dog.angle) * acceleration))
 
-        last_position = dog.position
+        last_position = dog.position.clone()
         distance_to_target = np.linalg.norm(target.position - dog.position)
 
         # Применяем ускорение (с ограничением)
         dog.acceleration = torch.clip(dog.acceleration, -1, 1) * 2.0
 
         # Обновляем скорость
-        dog.velocity += dog.acceleration
+        dog.velocity += dog.acceleration * 0.5
 
         # Ограничиваем максимальную скорость
         speed = np.linalg.norm(dog.velocity)
@@ -120,26 +120,26 @@ class Environment:
             dog.velocity = (dog.velocity / speed) * dog.max_speed
 
         # Обновляем позицию
-        dog.position += dog.velocity * 0.1
+        dog.position += dog.velocity * 0.5
 
         # Проверяем столкновения с границами
         collision = self._check_boundary_collision(dog)
         target_reached = False
 
-        reward = 0.0
+        reward = -0.1
 
         if target.active:
             distance = np.linalg.norm(target.position - dog.position)
             if distance < (dog.size + target.radius):
                 target_reached = True
-            # else:
-            #     # Награда за приближение
-            #     old_distance = np.linalg.norm(target.position - last_position)
-            #     distance_reward = (old_distance - distance_to_target) * 0.1
-            #     reward += max(distance_reward, -1.0)  # Минимальный штраф
+            else:
+                # Награда за приближение
+                old_distance = np.linalg.norm(target.position - last_position)
+                distance_reward = (old_distance - distance_to_target) * 0.1
+                reward += max(distance_reward, -0.2) - distance / self.field_size
 
         if target_reached:
-            reward += 100.0
+            reward += 50.0
             target = self.create_target(target.id + 1)
 
         # Штраф за столкновение с границей
@@ -189,30 +189,69 @@ class Environment:
 
         return collision
 
+    # def get_state(self, dog, target):
+    #     # Нормализованные координаты
+    #     dog_pos = dog.position / (self.field_size / 2)
+    #     dog_vel = dog.velocity / dog.max_speed
+    #
+    #     # Расстояние до границ
+    #     half_field = self.field_size / 2
+    #     boundary_dist = np.array([
+    #         (half_field - abs(dog.position[0])) / half_field,
+    #         (half_field - abs(dog.position[1])) / half_field
+    #     ])
+    #
+    #     return np.concatenate([
+    #         dog_pos,
+    #         dog_vel,
+    #         dog.angle,
+    #         dog.angle_velocity,
+    #         target.position / (self.field_size / 2),
+    #         boundary_dist
+    #     ])
+
     def get_state(self, dog, target):
         """
         Получает вектор состояния для нейронной сети.
-        (Аналогично методу _get_state в классе Individual)
         """
-        # Нормализованные координаты
-        dog_pos = dog.position / (self.field_size / 2)
-        dog_vel = dog.velocity / dog.max_speed
+        # Нормализация
+        half_field = self.field_size / 2
+
+        # Позиция и скорость
+        dog_pos = dog.position.numpy() / half_field
+        dog_vel = dog.velocity.numpy() / dog.max_speed
+
+        # Угол (нормализация от -1 до 1)
+        angle_sin = math.sin(dog.angle.item())
+        angle_cos = math.cos(dog.angle.item())
+
+        # Угловая скорость (нормализация)
+        norm_angle_vel = dog.angle_velocity.item() / 0.7  # Макс. угловая скорость 0.7
+
+        # Позиция цели
+        target_pos = target.position.numpy() / half_field
+
+        # Вектор к цели (относительный)
+        to_target = target.position - dog.position
+        norm_to_target = to_target.numpy() / (half_field * 2)  # Нормализация
+
+        # Расстояние до цели (нормализованное)
+        distance = torch.norm(to_target).item() / (half_field * 2)
 
         # Расстояние до границ
-        half_field = self.field_size / 2
-        boundary_dist = np.array([
-            (half_field - abs(dog.position[0])) / half_field,
-            (half_field - abs(dog.position[1])) / half_field
-        ])
+        boundary_x = (half_field - abs(dog.position[0].item())) / half_field
+        boundary_y = (half_field - abs(dog.position[1].item())) / half_field
 
-        return np.concatenate([
-            dog_pos,
-            dog_vel,
-            dog.angle,
-            dog.angle_velocity,
-            target.position / (self.field_size / 2),
-            boundary_dist
-        ])
+        return np.array([
+            dog_pos[0], dog_pos[1],
+            dog_vel[0], dog_vel[1],
+            angle_sin, angle_cos,
+            norm_angle_vel,
+            target_pos[0], target_pos[1],
+            norm_to_target[0], norm_to_target[1],
+            distance,
+            boundary_x, boundary_y
+        ], dtype=np.float32)
 
     def get_stats(self):
         """Возвращает статистику среды."""

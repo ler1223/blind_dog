@@ -76,7 +76,7 @@ class BasicAlgorithm:
         targets_tensor = torch.cat(dataset_targets, dim=0)
         batch_size = 32
         num_batches = len(dataset_states) // batch_size
-        print(num_batches)
+        # print(num_batches)
 
         for epoch in range(epochs):
             epoch_loss = 0

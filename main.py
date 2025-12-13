@@ -3,16 +3,10 @@ import Evolution
 import BasicTrain
 import Visualizer
 import torch
+import DDPG
 
 
-def start_evolution_algorithm():
-    env = Simulation.Environment(
-        field_size=50.0,
-        num_targets=50,
-        max_episode_steps=200,
-        seed=42
-    )
-
+def start_evolution_algorithm(env):
     # Создаем и запускаем эволюционный алгоритм
     ea = Evolution.EvolutionaryAlgorithm(
         network_template=Evolution.EvolutionaryNetwork(10, 128, 2),
@@ -31,30 +25,16 @@ def start_evolution_algorithm():
     print(f"Collisions: {best_individual.stats['collisions']:.1f}")
 
 
-def start_basic_algorithm():
-    env = Simulation.Environment(
-        field_size=50.0,
-        num_targets=50,
-        max_episode_steps=200,
-        seed=42
-    )
-
+def start_basic_algorithm(env, count=10):
     # Создаем и запускаем эволюционный алгоритм
     ba = BasicTrain.BasicAlgorithm(env=env, input_size=10, device="cuda")
 
     # Запускаем обучение
-    for i in range(10):
+    for i in range(count):
         best_individual = ba.run(epochs=100, count_steps=500, name=i)
 
 
-def start_combined_algorithm(population_size=10):
-    env = Simulation.Environment(
-        field_size=50.0,
-        num_targets=50,
-        max_episode_steps=300,
-        seed=42
-    )
-
+def start_combined_algorithm(env, population_size=10):
     # Создаем и запускаем эволюционный алгоритм
     # ba = BasicTrain.BasicAlgorithm(env=env, input_size=10, device="cuda")
 
@@ -86,7 +66,17 @@ def start_combined_algorithm(population_size=10):
     print(f"Collisions: {best_individual.stats['collisions']:.1f}")
 
 
+def start_ddpg(env, epoch=100):
+    ddpg = DDPG.DDPG(gamma=0.99, tau=0.001, hidden_size=256, state_size=14, action_size=2, device="cuda")
+    ddpg.train(env=env, epochs=epoch, count_steps=300)
+
+
 if __name__ == '__main__':
-    # start_basic_algorithm()
-    # start_evolution_algorithm()
-    start_combined_algorithm(population_size=10)
+    env = Simulation.Environment(
+        field_size=50.0
+    )
+
+    # start_basic_algorithm(env)
+    # start_evolution_algorithm(env)
+    # start_combined_algorithm(env, population_size=10)
+    start_ddpg(env, 10000)
