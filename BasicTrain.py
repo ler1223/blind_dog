@@ -68,7 +68,7 @@ class BasicAlgorithm:
                 state = self.env.get_state(dog, target)
                 state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
                 current_accelerate = self.get_current_accelerate(dog, target)
-                dog, target, reward = self.env.step(dog, target, current_accelerate[0], current_accelerate[1])
+                dog, target, reward, done = self.env.step(dog, target, current_accelerate[0], current_accelerate[1])
                 dataset_states.append(state)
                 dataset_targets.append(current_accelerate.unsqueeze(0).to(device=self.device))
 

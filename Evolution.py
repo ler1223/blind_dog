@@ -26,8 +26,6 @@ class EvolutionaryNetwork(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_size, hidden_size),
             nn.ReLU(),
-            nn.Linear(hidden_size, hidden_size),
-            nn.ReLU(),
             nn.Linear(hidden_size, hidden_size // 2),
             nn.ReLU(),
             nn.Linear(hidden_size // 2, output_size),
@@ -130,7 +128,7 @@ class Individual:
             with torch.no_grad():
                 state = env.get_state(dog, target)
                 accelerate, angle_acceleration = self.predict(state)
-            dog, targets, reward = env.step(dog, target, accelerate, angle_acceleration)
+            dog, targets, reward, done = env.step(dog, target, accelerate, angle_acceleration)
             fitness += reward
 
         stats = {

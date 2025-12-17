@@ -108,6 +108,80 @@ class MinimalVisualizer:
         plt.show()
 
 
+class MinimalVisualizer2:
+    """
+    Минималистичная версия для быстрой визуализации.
+    """
+
+    def __init__(self, field_size=10.0):
+        self.field_size = field_size
+        self.fig, self.ax = plt.subplots(figsize=(8, 8))
+
+        self.ax.set_xlim(-field_size / 2, field_size / 2)
+        self.ax.set_ylim(-field_size / 2, field_size / 2)
+        self.ax.set_aspect('equal')
+        self.ax.grid(True, alpha=0.3)
+
+        # Объекты
+        self.dog_rect = None
+        self.target_circle = None
+        self.enemy_triangles = []
+        self.info_text = None
+
+    def update(self, dog, target, enemies, step=0, reward=0):
+        """Быстрое обновление."""
+        # Очистка
+        self.clear()
+
+        for enemy in enemies:
+            triangle = plt.Rectangle((enemy.position[0] - enemy.size / 2, enemy.position[1] - enemy.size / 2),
+                                     enemy.size, enemy.size, color='orange', alpha=0.6)
+            self.ax.add_patch(triangle)
+            self.enemy_triangles.append(triangle)
+
+        # Цель
+        if hasattr(target, 'active') and target.active:
+            self.target_circle = plt.Circle(
+                (target.position[0], target.position[1]),
+                target.radius, color='red', alpha=0.7
+            )
+            self.ax.add_patch(self.target_circle)
+
+        # Собака
+        self.dog_rect = plt.Rectangle(
+            (dog.position[0] - dog.size / 2, dog.position[1] - dog.size / 2),
+            dog.size, dog.size,
+            color='blue', alpha=0.7
+        )
+        self.ax.add_patch(self.dog_rect)
+
+        # Информация
+        info = f"Step: {step}\nReward: {reward:.2f}"
+        if self.info_text:
+            self.info_text.remove()
+
+        self.info_text = self.ax.text(
+            0.02, 0.98, info, transform=self.ax.transAxes,
+            verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.7)
+        )
+
+    def clear(self):
+        """Быстрая очистка."""
+        if self.dog_rect:
+            self.dog_rect.remove()
+        if self.target_circle:
+            self.target_circle.remove()
+        for triangle in self.enemy_triangles:
+            triangle.remove()
+        self.enemy_triangles = []
+
+    def show(self, pause_time=0.01):
+        """Быстрый показ."""
+        plt.draw()
+        plt.pause(pause_time)
+
+
 class SimpleAnimation:
     """
     Простая анимация для симуляции в реальном времени.
@@ -133,7 +207,13 @@ class SimpleAnimation:
         self.device = device
 
         # Создаем визуализатор
-        self.visualizer = MinimalVisualizer(field_size=env.field_size)
+        if env.__class__.__name__ == "Environment":
+            self.visualizer = MinimalVisualizer(field_size=env.field_size)
+        else:
+            self.visualizer = MinimalVisualizer2(field_size=env.field_size)
+
+        self.is_done = False
+        self.current_step = 0
 
         # Для хранения истории
         self.history = {
@@ -145,11 +225,21 @@ class SimpleAnimation:
         self.ani = FuncAnimation(
             self.visualizer.fig,
             self._update_frame,
-            frames=steps,
+            frames=self._frame_generator,
             interval=interval,
             repeat=False,
-            blit=False
+            blit=False,
+            cache_frame_data=False
         )
+
+    def _frame_generator(self):
+        """
+        Генератор кадров, который останавливается при done=True.
+        """
+        self.current_step = 0
+        while self.current_step < self.steps and not self.is_done:
+            yield self.current_step
+            self.current_step += 1
 
     def _update_frame(self, frame):
         """
@@ -167,25 +257,39 @@ class SimpleAnimation:
                 predict = predict.cpu()
             accelerate = predict.squeeze(0)
             accelerate, angle_acceleration = accelerate[0], accelerate[1]
-        self.dog, self.target, reward = self.env.step(self.dog, self.target, accelerate, angle_acceleration)
+        self.dog, self.target, reward, done = self.env.step(self.dog, self.target, accelerate, angle_acceleration, frame, self.steps)
 
         # Обновляем визуализацию
-        self.visualizer.update_scene(
-            self.dog, self.target,
-            step=frame,
-            fitness=reward
-        )
+        self.is_done = done
+
+        if self.env.__class__.__name__ == "Environment":
+            self.visualizer.update_scene(
+                self.dog, self.target,
+                step=frame,
+                fitness=reward
+            )
+        else:
+            self.visualizer.update(
+                self.dog, self.target,
+                enemies=self.env.enemies,
+                step=frame,
+                reward=reward
+            )
 
         # Сохраняем историю
         self.history['positions'].append(self.dog.position.numpy())
         self.history['fitness'].append(reward)
 
-        if frame == self.steps - 1:
+        if frame == self.steps - 1 or done:
+            self.ani.event_source.stop()
             plt.close(self.visualizer.fig)
 
     def show(self):
         """Показывает анимацию."""
-        self.visualizer.show()
+        try:
+            self.visualizer.show()
+        except:
+            pass
 
     def save(self, save_path, fps=30):
         """
@@ -194,13 +298,16 @@ class SimpleAnimation:
             save_path: путь сохранения
             fps: Кадров в секунду
         """
-        self.ani.save(save_path + ".gif", writer="pillow", dpi=100, fps=fps)
+        try:
+            self.ani.save(save_path + ".gif", writer="pillow", dpi=100, fps=fps)
+        except Exception as e:
+            print(f"Ошибка при сохранении анимации: {e}")
         plt.close(self.visualizer.fig)
 
 
 def animation(individual, env, interval_animation=10, device="cpu", count_steps=200, render=True, save_path=None):
     """Демонстрация анимации."""
-    print("\n=== Simple Animation Demo ===")
+    print("\n=== Simple Animation ===")
     dog, target = env.reset()
 
     # Создаем анимацию
