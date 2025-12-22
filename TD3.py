@@ -6,11 +6,11 @@ from collections import deque, namedtuple
 import random
 
 Experience = namedtuple('Experience',
-                       ('state', 'action', 'reward', 'next_state'))
+                       ('state', 'action', 'reward', 'next_state', 'done'))
 
 
 class GaussianNoise:
-    def __init__(self, action_dim, sigma=0.2, sigma_min=0.01, sigma_decay=0.999):
+    def __init__(self, action_dim, sigma=0.1, sigma_min=0.01, sigma_decay=0.999):
         self.action_dim = action_dim
         self.sigma = sigma
         self.sigma_min = sigma_min
@@ -27,8 +27,8 @@ class ReplayBuffer:
         self.buffer = deque(maxlen=capacity)
         self.lstm = lstm
 
-    def push(self, state, action, reward, next_state):
-        self.buffer.append(Experience(state, action, reward, next_state))
+    def push(self, state, action, reward, next_state, done):
+        self.buffer.append(Experience(state, action, reward, next_state, done))
 
     def sample(self, batch_size):
         experiences = random.sample(self.buffer, batch_size)
@@ -44,8 +44,9 @@ class ReplayBuffer:
         actions = torch.cat([e.action for e in experiences])
         rewards = torch.FloatTensor([e.reward for e in experiences])
         next_states = torch.cat([e.next_state for e in experiences])
+        dones = torch.FloatTensor([e.done for e in experiences])
 
-        return states, actions, rewards, next_states
+        return states, actions, rewards, next_states, dones
 
     def __len__(self):
         return len(self.buffer)
@@ -90,6 +91,9 @@ class ActorNetwork(Evolution.EvolutionaryNetwork):
                 nn.Linear(hidden_size, hidden_size),
                 nn.ReLU(),
                 nn.LayerNorm(hidden_size),
+                nn.Linear(hidden_size, hidden_size),
+                nn.ReLU(),
+                nn.LayerNorm(hidden_size),
                 nn.Linear(hidden_size, hidden_size // 2),
                 nn.ReLU(),
                 nn.Linear(hidden_size // 2, output_size),
@@ -98,6 +102,9 @@ class ActorNetwork(Evolution.EvolutionaryNetwork):
         else:
             self.net = nn.Sequential(
                 nn.Linear(input_size, hidden_size),
+                nn.ReLU(),
+                nn.LayerNorm(hidden_size),
+                nn.Linear(hidden_size, hidden_size),
                 nn.ReLU(),
                 nn.LayerNorm(hidden_size),
                 nn.Linear(hidden_size, hidden_size),
@@ -120,7 +127,7 @@ class ActorNetwork(Evolution.EvolutionaryNetwork):
             return self.net(x).view(-1, self.output_size)
 
 
-class CriticNetwork(nn.Module):
+class TwinCriticNetwork(nn.Module):
     def __init__(self, encoder, state_size=42, action_size=2, hidden_size=64, output_size=1, lstm=False):
         super().__init__()
         self.lstm = lstm
@@ -129,7 +136,24 @@ class CriticNetwork(nn.Module):
         if lstm:
             self.encoder = encoder
 
-            self.net = nn.Sequential(
+            self.q1 = nn.Sequential(
+                nn.Linear(hidden_size + action_size, hidden_size),
+                nn.ReLU(),
+                nn.LayerNorm(hidden_size),
+                nn.Linear(hidden_size, hidden_size),
+                nn.ReLU(),
+                nn.LayerNorm(hidden_size),
+                nn.Linear(hidden_size, hidden_size),
+                nn.ReLU(),
+                nn.LayerNorm(hidden_size),
+                nn.Linear(hidden_size, hidden_size),
+                nn.ReLU(),
+                nn.LayerNorm(hidden_size),
+                nn.Linear(hidden_size, hidden_size // 2),
+                nn.ReLU(),
+                nn.Linear(hidden_size // 2, output_size),
+            )
+            self.q2 = nn.Sequential(
                 nn.Linear(hidden_size + action_size, hidden_size),
                 nn.ReLU(),
                 nn.LayerNorm(hidden_size),
@@ -147,7 +171,24 @@ class CriticNetwork(nn.Module):
                 nn.Linear(hidden_size // 2, output_size),
             )
         else:
-            self.net = nn.Sequential(
+            self.q1 = nn.Sequential(
+                nn.Linear(state_size + action_size, hidden_size),
+                nn.ReLU(),
+                nn.LayerNorm(hidden_size),
+                nn.Linear(hidden_size, hidden_size),
+                nn.ReLU(),
+                nn.LayerNorm(hidden_size),
+                nn.Linear(hidden_size, hidden_size),
+                nn.ReLU(),
+                nn.LayerNorm(hidden_size),
+                nn.Linear(hidden_size, hidden_size),
+                nn.ReLU(),
+                nn.LayerNorm(hidden_size),
+                nn.Linear(hidden_size, hidden_size // 2),
+                nn.ReLU(),
+                nn.Linear(hidden_size // 2, output_size),
+            )
+            self.q2 = nn.Sequential(
                 nn.Linear(state_size + action_size, hidden_size),
                 nn.ReLU(),
                 nn.LayerNorm(hidden_size),
@@ -166,15 +207,26 @@ class CriticNetwork(nn.Module):
             )
 
     def forward(self, state, action):
+        q1, q2 = self.get_target_q(state, action)
+        return torch.min(q1, q2)
+
+    def get_target_q(self, state, action):
         if self.lstm:
             state = self.encoder(state)
-            return self.net(torch.cat([state, action], dim=1))
+            q1 = self.q1(torch.cat([state, action], dim=1))
+            q2 = self.q2(torch.cat([state, action], dim=1))
         else:
-            return self.net(torch.cat([state.view(-1, self.state_size), action.view(-1, self.action_size)], dim=1))
+            q1 = self.q1(torch.cat([state.view(-1, self.state_size), action.view(-1, self.action_size)], dim=1))
+            q2 = self.q2(torch.cat([state.view(-1, self.state_size), action.view(-1, self.action_size)], dim=1))
+        return q1, q2
+
+    def Q1(self, state, action):
+        q1, q2 = self.get_target_q(state, action)
+        return torch.min(q1, q2)
 
 
-class DDPG:
-    def __init__(self, gamma, tau, hidden_size, state_size, action_size, device="cpu", batch_size=32, count_last_states=1):
+class TD3:
+    def __init__(self, gamma, tau, hidden_size, state_size, action_size, device="cpu", batch_size=32, count_last_states=1, policy_update_freq=2, policy_noise=0.3, noise_clip=1, path_actor=None):
         self.gamma = gamma
         self.tau = tau
         self.action_size = action_size
@@ -182,26 +234,37 @@ class DDPG:
         self.batch_size = batch_size
         self.count_last_states = count_last_states
         self.lstm = count_last_states > 1
+        self.policy_update_freq = policy_update_freq
+        self.total_steps = 0
+        self.policy_noise = policy_noise
+        self.noise_clip = noise_clip
 
-        self.encoder = LSTMEncoder(state_dim=state_size, hidden_size=hidden_size)
+        self.encoder_actor = LSTMEncoder(state_dim=state_size, hidden_size=hidden_size)
+        self.encoder_critic = LSTMEncoder(state_dim=state_size, hidden_size=hidden_size)
         # Define the actor
-        self.actor = ActorNetwork(encoder=self.encoder, input_size=state_size, hidden_size=hidden_size, output_size=action_size, lstm=self.lstm).to(self.device)
-        self.actor_target = ActorNetwork(encoder=self.encoder, input_size=state_size, hidden_size=hidden_size, output_size=action_size, lstm=self.lstm).to(self.device)
+        if path_actor is None:
+            self.actor = ActorNetwork(encoder=self.encoder_actor, input_size=state_size, hidden_size=hidden_size, output_size=action_size, lstm=self.lstm).to(self.device)
+        else:
+            self.load_actor(path_actor)
+        self.actor_target = ActorNetwork(encoder=LSTMEncoder(state_dim=state_size, hidden_size=hidden_size), input_size=state_size, hidden_size=hidden_size, output_size=action_size, lstm=self.lstm).to(self.device)
 
         # Define the critic
-        self.critic = CriticNetwork(encoder=self.encoder, state_size=state_size, action_size=action_size, hidden_size=hidden_size, output_size=1, lstm=self.lstm).to(device)
-        self.critic_target = CriticNetwork(encoder=self.encoder, state_size=state_size, action_size=action_size, hidden_size=hidden_size, output_size=1, lstm=self.lstm).to(device)
+        self.critic = TwinCriticNetwork(encoder=self.encoder_critic, state_size=state_size, action_size=action_size, hidden_size=hidden_size, output_size=1, lstm=self.lstm).to(device)
+        self.critic_target = TwinCriticNetwork(encoder=LSTMEncoder(state_dim=state_size, hidden_size=hidden_size), state_size=state_size, action_size=action_size, hidden_size=hidden_size, output_size=1, lstm=self.lstm).to(device)
 
         # Define the optimizers for both networks
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=1e-4)  # optimizer for the actor network
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=1e-3)  # optimizer for the critic network
 
-        self.replay_buffer = ReplayBuffer(int(1e5), lstm=self.lstm)
+        self.replay_buffer = ReplayBuffer(int(1e4), lstm=self.lstm)
         self.noise = GaussianNoise(action_dim=action_size)
 
         # Make sure both targets are with the same weight
         hard_update(self.actor_target, self.actor)
         hard_update(self.critic_target, self.critic)
+
+    def load_actor(self, path):
+        self.actor = torch.load(path, weights_only=False)
 
     def calc_action(self, state, action_noise=None):
         x = state.to(self.device)
@@ -219,61 +282,53 @@ class DDPG:
         return action
 
     def update_params(self):
-        """
-        Updates the parameters/networks of the agent according to the given batch.
-        This means we ...
-            1. Compute the targets
-            2. Update the Q-function/critic by one step of gradient descent
-            3. Update the policy/actor by one step of gradient ascent
-            4. Update the target networks through a soft update
-
-        Arguments:
-            batch:  Batch to perform the training of the parameters
-        """
         if len(self.replay_buffer) < self.batch_size:
             return 0, 0
 
             # Берем batch из буфера
-        states, actions, rewards, next_states = self.replay_buffer.sample(self.batch_size)
+        states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
 
         # # Get tensors from the batch
         state_batch = states.to(self.device)
         action_batch = actions.to(self.device)
         reward_batch = rewards.to(self.device)
+        # reward_batch = (reward_batch - reward_batch.mean()) / (reward_batch.std() + 1e-8)
         next_state_batch = next_states.to(self.device)
+        done_batch = dones.to(self.device)
+
+        noise = torch.randn_like(actions) * self.policy_noise
+        noise = torch.clamp(noise, -self.noise_clip, self.noise_clip).to(self.device)
 
         # Get the actions and the state values to compute the targets
-        next_action_batch = self.actor_target(next_state_batch)
-        next_state_action_values = self.critic_target(next_state_batch, next_action_batch.detach())
+        next_action_batch = self.actor_target(next_state_batch) + noise
+        next_action_batch = torch.clamp(next_action_batch, -1, 1)
+        target_q = self.critic_target(next_state_batch.detach(), next_action_batch.detach())
 
         # Compute the target
         reward_batch = reward_batch.unsqueeze(1)
-        expected_values = reward_batch + self.gamma * next_state_action_values
-
-        expected_values = torch.clamp(expected_values, -1000, 1000)
+        expected_values = reward_batch + self.gamma * target_q * (1 - done_batch).view(-1, 1)
 
         # Update the critic network
         self.critic_optimizer.zero_grad()
-        state_action_batch = self.critic(state_batch, action_batch)
-        value_loss = nn.functional.mse_loss(state_action_batch, expected_values.detach())
-        value_loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
-        torch.nn.utils.clip_grad_norm_(self.critic_target.parameters(), max_norm=1.0)
+        current_q1, current_q2 = self.critic.get_target_q(state_batch, action_batch)
+        critic_loss = nn.functional.mse_loss(current_q1, expected_values.detach()) + nn.functional.mse_loss(current_q2, expected_values.detach())
+        critic_loss.backward()
+        # torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
         self.critic_optimizer.step()
 
         # Update the actor network
         self.actor_optimizer.zero_grad()
-        policy_loss = -self.critic(state_batch, self.actor(state_batch))
-        policy_loss = policy_loss.mean()
-        policy_loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1.0)
-        torch.nn.utils.clip_grad_norm_(self.actor_target.parameters(), max_norm=1.0)
-        self.actor_optimizer.step()
+        actor_loss = -self.critic.Q1(state_batch, self.actor(state_batch)).mean()
 
-        # Update the target networks
-        soft_update(self.actor_target, self.actor, self.tau)
-        soft_update(self.critic_target, self.critic, self.tau)
-        return value_loss.item(), policy_loss.item()
+        if self.total_steps % self.policy_update_freq == 0:
+            actor_loss.backward()
+            # torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1.0)
+            self.actor_optimizer.step()
+            soft_update(self.actor_target, self.actor, self.tau)
+            soft_update(self.critic_target, self.critic, self.tau)
+
+        self.total_steps += 1
+        return critic_loss.item(), actor_loss.item()
 
     def train(self, env, epochs=10, count_steps=200):
         for epoch in range(epochs):
@@ -286,10 +341,11 @@ class DDPG:
                 state = env.get_state(dog, target, self.count_last_states, save=True)
                 state = torch.FloatTensor(state).to(self.device)
 
-                if epoch < epochs // 2:
+                if epoch < epochs // 5:
                     action = self.calc_action(state.unsqueeze(0), self.noise)
                 else:
                     action = self.calc_action(state.unsqueeze(0))
+                # action = self.calc_action(state.unsqueeze(0))
 
                 if self.device == "cuda":
                     action = action.cpu()
@@ -303,7 +359,7 @@ class DDPG:
                 next_state = torch.FloatTensor(next_state).unsqueeze(0).to(self.device)
                 fitness += reward
 
-                self.replay_buffer.push(state, action.unsqueeze(0), reward, next_state)
+                self.replay_buffer.push(state, action.unsqueeze(0), reward, next_state, done)
 
                 critic_loss, policy_loss = self.update_params()
                 if critic_loss != 0:
@@ -313,7 +369,6 @@ class DDPG:
 
                 if done:
                     break
-
 
             if num_updates == 0:
                 print(f"value_loss: -, policy_loss: -, fitness: {fitness}")

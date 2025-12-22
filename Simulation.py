@@ -339,37 +339,54 @@ class Environment2:
         collision = self._check_boundary_collision(dog)
         target_reached = False
 
-        collision_enemies = self.update_enemies(dog)
+        collision_enemies, enemy_reward = self.update_enemies(dog)
 
-        reward = -0.01 + 0.00005*step
+        reward = 0.0
+
+        reward += 0.001 * step
 
         if target.active:
             distance = np.linalg.norm(target.position - dog.position)
+
             if distance < (dog.size + target.radius):
                 target_reached = True
             else:
-                # Награда за приближение
                 if self.last_position is not None:
                     old_distance = np.linalg.norm(target.position - self.last_position)
-                    distance_reward = (old_distance - distance_to_target) * 0.1
-                    reward += max(distance_reward, -0.1) - distance / self.field_size
+                    progress = old_distance - distance
+
+                    max_possible_progress = dog.max_speed * 0.5
+                    normalized_progress = progress / (max_possible_progress + 1e-8)
+
+                    reward += 0.1 * normalized_progress
+                    reward -= 0.1 * distance / self.field_size
 
         self.last_position = dog.position.clone()
 
         if target_reached:
-            reward += 20.0
-            # reward += 40
+            reward += 20
             target = self.create_target(target.id + 1)
             self.put_last_target = step
 
         # Штраф за столкновение с границей
         if collision:
-            reward -= 5.0 * np.linalg.norm(dog.velocity)
+            reward -= 0.5 * np.linalg.norm(dog.velocity)
 
         done = False
         if collision_enemies:
-            reward += -60
+            reward -= 30
             done = True
+            return dog, target, reward, done
+        else:
+            reward += enemy_reward / 10
+
+        speed_norm = speed / dog.max_speed
+        if speed_norm < 0.1 and abs(angle_acceleration) < 0.1:
+            reward -= 0.01
+
+        movement_efficiency = speed_norm / (abs(acceleration) + 0.1)
+        reward += 0.001 * movement_efficiency
+
         return dog, target, reward, done
 
     def _random_position(self):
@@ -410,6 +427,7 @@ class Environment2:
 
     def update_enemies(self, dog):
         collision_dog = False
+        enemy_reward = torch.zeros(1)
         for enemy in self.enemies:
             enemy.position += enemy.velocity * 0.5
 
@@ -434,7 +452,22 @@ class Environment2:
                     torch.abs(enemy.position[1] - dog.position[1]) < (enemy.size + dog.size):
                 collision_dog = True
 
-        return collision_dog
+            distance_to_enemy = torch.norm(enemy.position - dog.position)
+            if distance_to_enemy <= enemy.size * 3:  # Опасная зона
+                # Экспоненциальный штраф за приближение
+                danger_factor = (enemy.size * 3 - distance_to_enemy) / (enemy.size * 3)
+                enemy_reward -= 1.0 * torch.exp(danger_factor * 3)  # Экспоненциальный рост
+
+            elif distance_to_enemy < enemy.size * 8:  # Буферная зона
+                # Небольшая награда за поддержание безопасной дистанции
+                normalized_dist = (distance_to_enemy - enemy.size * 4) / (enemy.size * 4)
+                enemy_reward += 0.1 * normalized_dist  # Линейная награда
+
+            else:  # Безопасная зона
+                # Маленькая награда за нахождение в безопасности
+                enemy_reward += 0.05
+
+        return collision_dog, float(enemy_reward)
 
     def get_enemy_position(self, dog, count=4):
         enemies_position = []
@@ -449,7 +482,7 @@ class Environment2:
         result_enemies = sorted(enemies_position, key=lambda x: x[2])[:count]
         result = []
         for pos, dir_vec, dist, vel in result_enemies:
-            result.extend([pos[0], pos[1], dir_vec[0], dir_vec[1], vel[0], vel[1], dist])
+            result.extend([dir_vec[0], dir_vec[1], dist, self.enemies[0].size / self.field_size])
         return np.array(result, dtype=np.float32)
 
     def get_state(self, dog, target, count_last_states=1, save=True):

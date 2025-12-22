@@ -4,6 +4,7 @@ import BasicTrain
 import Visualizer
 import torch
 import DDPG
+import TD3
 
 
 def start_evolution_algorithm(env):
@@ -67,8 +68,14 @@ def start_combined_algorithm(env, population_size=10):
 
 
 def start_ddpg(env, epoch=100):
-    ddpg = DDPG.DDPG(gamma=0.99, tau=0.003, hidden_size=1024, state_size=42, action_size=2, batch_size=32, device="cuda", count_last_states=1)
+    ddpg = DDPG.DDPG(gamma=0.99, tau=0.003, hidden_size=256, state_size=30, action_size=2, batch_size=32, device="cuda", count_last_states=1)
     ddpg.train(env=env, epochs=epoch, count_steps=300)
+
+
+def start_td3(env, epoch=100):
+    td3 = TD3.TD3(gamma=0.5, tau=0.001, hidden_size=256, state_size=30, action_size=2, batch_size=32, device="cuda", count_last_states=1, policy_update_freq=2, policy_noise=0.1)
+    td3.load_actor("sim2_model/DDPG_10000_-10.1044.pth")
+    td3.train(env=env, epochs=epoch, count_steps=300)
 
 
 def save_model_run(env, path, count_steps):
@@ -85,5 +92,6 @@ if __name__ == '__main__':
     # start_basic_algorithm(env)
     # start_evolution_algorithm(env)
     # start_combined_algorithm(env, population_size=10)
-    start_ddpg(env, 10000)
+    # start_ddpg(env, 10001)
+    start_td3(env, 10001)
     # save_model_run(env=env, path="pretraining_model/DDPG_1500612.3310.pth", count_steps=1000)
