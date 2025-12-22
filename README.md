@@ -1,3 +1,43 @@
+<div align="center"><h3>Лучшее решение первой симуляции</h3></div>
+<div align="center">hiden_dim = 512</div>
+
+<table align="center">
+  <tr>
+    <td align="center">
+      <img src="./preview/DDPG_epoch_1600.gif" width="300"><br>
+      <small>1600 эпоха</small>
+    </td>
+    <td align="center">
+      <img src="./preview/DDPG_epoch_1700.gif" width="300"><br>
+      <small>1700 эпоха</small>
+    </td>
+    <td align="center">
+      <img src="./preview/DDPG_epoch_1800.gif" width="300"><br>
+      <small>1800 эпоха</small>
+    </td>
+  </tr>
+</table>
+
+<div align="center"><h3>Лучшее решение второй симуляции</h3></div>
+<div align="center">hiden_dim = 256</div>
+
+<table align="center">
+  <tr>
+    <td align="center">
+      <img src="./preview/DDPG_epoch_9800.gif" width="300"><br>
+      <small>9800 эпоха</small>
+    </td>
+    <td align="center">
+      <img src="./preview/DDPG_epoch_9900.gif" width="300"><br>
+      <small>9900 эпоха</small>
+    </td>
+    <td align="center">
+      <img src="./preview/DDPG_epoch_10000.gif" width="300"><br>
+      <small>10000 эпоха</small>
+    </td>
+  </tr>
+</table>
+
 !!!Важно для работы с cuda надо установить саму cuda а также pytorch с потдержкой cuda.!!!
 
 ***Simulation***
