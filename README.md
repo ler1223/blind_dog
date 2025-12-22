@@ -4,15 +4,27 @@
 <table align="center">
   <tr>
     <td align="center">
-      <img src="./preview/DDPG_epoch_1600.gif" width="300"><br>
-      <small>1600 эпоха</small>
+      <img src="./preview/sim1/DDPG_epoch_0.gif" width="300"><br>
+      <small>0 эпоха</small>
     </td>
     <td align="center">
-      <img src="./preview/DDPG_epoch_1700.gif" width="300"><br>
+      <img src="./preview/sim1/DDPG_epoch_400.gif" width="300"><br>
+      <small>400 эпоха</small>
+    </td>
+    <td align="center">
+      <img src="./preview/sim1/DDPG_epoch_800.gif" width="300"><br>
+      <small>800 эпоха</small>
+    </td>
+    <td align="center">
+      <img src="./preview/sim1/DDPG_epoch_1200.gif" width="300"><br>
+      <small>1200 эпоха</small>
+    </td>
+    <td align="center">
+      <img src="./preview/sim1/DDPG_epoch_1700.gif" width="300"><br>
       <small>1700 эпоха</small>
     </td>
     <td align="center">
-      <img src="./preview/DDPG_epoch_1800.gif" width="300"><br>
+      <img src="./preview/sim1/DDPG_epoch_1800.gif" width="300"><br>
       <small>1800 эпоха</small>
     </td>
   </tr>
@@ -24,15 +36,15 @@
 <table align="center">
   <tr>
     <td align="center">
-      <img src="./preview/DDPG_epoch_9800.gif" width="300"><br>
+      <img src="./preview/sim2/DDPG_epoch_9800.gif" width="300"><br>
       <small>9800 эпоха</small>
     </td>
     <td align="center">
-      <img src="./preview/DDPG_epoch_9900.gif" width="300"><br>
+      <img src="./preview/sim2/DDPG_epoch_9900.gif" width="300"><br>
       <small>9900 эпоха</small>
     </td>
     <td align="center">
-      <img src="./preview/DDPG_epoch_10000.gif" width="300"><br>
+      <img src="./preview/sim2/DDPG_epoch_10000.gif" width="300"><br>
       <small>10000 эпоха</small>
     </td>
   </tr>
