@@ -174,7 +174,7 @@ class CriticNetwork(nn.Module):
 
 
 class DDPG:
-    def __init__(self, gamma, tau, hidden_size, state_size, action_size, device="cpu", batch_size=32, count_last_states=1):
+    def __init__(self, gamma, tau, hidden_size, state_size, action_size, device="cpu", batch_size=32, count_last_states=1, path_save_anim=None, path_save_model=None):
         self.gamma = gamma
         self.tau = tau
         self.action_size = action_size
@@ -182,6 +182,8 @@ class DDPG:
         self.batch_size = batch_size
         self.count_last_states = count_last_states
         self.lstm = count_last_states > 1
+        self.path_save_anim = path_save_anim
+        self.path_save_model = path_save_model
 
         self.encoder = LSTMEncoder(state_dim=state_size, hidden_size=hidden_size)
         # Define the actor
@@ -320,6 +322,15 @@ class DDPG:
             else:
                 print(f"value_loss: {epoch_critic_loss / num_updates}, policy_loss: {epoch_actor_loss / num_updates}, fitness: {fitness}")
             if epoch % 100 == 0:
+                if self.path_save_anim is None:
+                    path = "anim_generation"
+                else:
+                    path = self.path_save_anim
                 Visualizer.animation(Evolution.Individual(self.actor, device="cuda"), env=env, device="cuda",
-                                     render=False, save_path="anim_generation"+"/DDPG_epoch_"+str(epoch))
-                torch.save(self.actor_target, "./pretraining_model/DDPG_" + str(epoch) + f"_{fitness:.4f}" + ".pth")
+                                     render=False, save_path=path + "/DDPG_epoch_" + str(epoch))
+
+                if self.path_save_model is None:
+                    path = "pretraining_model"
+                else:
+                    path = self.path_save_model
+                torch.save(self.actor_target, f"./{path}/DDPG_" + str(epoch) + f"_{fitness:.4f}" + ".pth")

@@ -33,12 +33,11 @@ class ReplayBuffer:
     def sample(self, batch_size):
         experiences = random.sample(self.buffer, batch_size)
         if self.lstm:
-            padded_states = torch.nn.utils.rnn.pad_sequence(
+            states = torch.nn.utils.rnn.pad_sequence(
                 [e.state for e in experiences],
                 batch_first=True,
                 padding_value=0.0
             )
-            states = padded_states
         else:
             states = torch.cat([e.state for e in experiences])
         actions = torch.cat([e.action for e in experiences])
@@ -226,7 +225,7 @@ class TwinCriticNetwork(nn.Module):
 
 
 class TD3:
-    def __init__(self, gamma, tau, hidden_size, state_size, action_size, device="cpu", batch_size=32, count_last_states=1, policy_update_freq=2, policy_noise=0.3, noise_clip=1, path_actor=None):
+    def __init__(self, gamma, tau, hidden_size, state_size, action_size, device="cpu", batch_size=32, count_last_states=1, policy_update_freq=2, policy_noise=0.3, noise_clip=1, path_actor=None, path_save_anim=None, path_save_model=None):
         self.gamma = gamma
         self.tau = tau
         self.action_size = action_size
@@ -238,6 +237,8 @@ class TD3:
         self.total_steps = 0
         self.policy_noise = policy_noise
         self.noise_clip = noise_clip
+        self.path_save_anim = path_save_anim
+        self.path_save_model = path_save_model
 
         self.encoder_actor = LSTMEncoder(state_dim=state_size, hidden_size=hidden_size)
         self.encoder_critic = LSTMEncoder(state_dim=state_size, hidden_size=hidden_size)
@@ -253,7 +254,7 @@ class TD3:
         self.critic_target = TwinCriticNetwork(encoder=LSTMEncoder(state_dim=state_size, hidden_size=hidden_size), state_size=state_size, action_size=action_size, hidden_size=hidden_size, output_size=1, lstm=self.lstm).to(device)
 
         # Define the optimizers for both networks
-        self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=1e-4)  # optimizer for the actor network
+        self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=1e-3)  # optimizer for the actor network
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=1e-3)  # optimizer for the critic network
 
         self.replay_buffer = ReplayBuffer(int(1e4), lstm=self.lstm)
@@ -309,23 +310,24 @@ class TD3:
         expected_values = reward_batch + self.gamma * target_q * (1 - done_batch).view(-1, 1)
 
         # Update the critic network
-        self.critic_optimizer.zero_grad()
-        current_q1, current_q2 = self.critic.get_target_q(state_batch, action_batch)
-        critic_loss = nn.functional.mse_loss(current_q1, expected_values.detach()) + nn.functional.mse_loss(current_q2, expected_values.detach())
-        critic_loss.backward()
-        # torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
-        self.critic_optimizer.step()
+        with torch.autograd.set_detect_anomaly(False):
+            self.critic_optimizer.zero_grad()
+            current_q1, current_q2 = self.critic.get_target_q(state_batch, action_batch)
+            critic_loss = nn.functional.mse_loss(current_q1, expected_values.detach()) + nn.functional.mse_loss(current_q2, expected_values.detach())
+            critic_loss.backward(retain_graph=False)
+            # torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
+            self.critic_optimizer.step()
 
-        # Update the actor network
-        self.actor_optimizer.zero_grad()
-        actor_loss = -self.critic.Q1(state_batch, self.actor(state_batch)).mean()
+            # Update the actor network
+            self.actor_optimizer.zero_grad()
+            actor_loss = -self.critic.Q1(state_batch, self.actor(state_batch)).mean()
 
-        if self.total_steps % self.policy_update_freq == 0:
-            actor_loss.backward()
-            # torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1.0)
-            self.actor_optimizer.step()
-            soft_update(self.actor_target, self.actor, self.tau)
-            soft_update(self.critic_target, self.critic, self.tau)
+            if self.total_steps % self.policy_update_freq == 0:
+                actor_loss.backward(retain_graph=False)
+                # torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1.0)
+                self.actor_optimizer.step()
+                soft_update(self.actor_target, self.actor, self.tau)
+                soft_update(self.critic_target, self.critic, self.tau)
 
         self.total_steps += 1
         return critic_loss.item(), actor_loss.item()
@@ -370,11 +372,22 @@ class TD3:
                 if done:
                     break
 
+            torch.cuda.empty_cache() if self.device == "cuda" else None
+
             if num_updates == 0:
                 print(f"value_loss: -, policy_loss: -, fitness: {fitness}")
             else:
                 print(f"value_loss: {epoch_critic_loss / num_updates}, policy_loss: {epoch_actor_loss / num_updates}, fitness: {fitness}")
             if epoch % 100 == 0:
+                if self.path_save_anim is None:
+                    path = "anim_generation"
+                else:
+                    path = self.path_save_anim
                 Visualizer.animation(Evolution.Individual(self.actor, device="cuda"), env=env, device="cuda",
-                                     render=False, save_path="anim_generation"+"/DDPG_epoch_"+str(epoch))
-                torch.save(self.actor_target, "./pretraining_model/DDPG_" + str(epoch) + f"_{fitness:.4f}" + ".pth")
+                                     render=False, save_path=path+"/DDPG_epoch_"+str(epoch))
+
+                if self.path_save_model is None:
+                    path = "pretraining_model"
+                else:
+                    path = self.path_save_model
+                torch.save(self.actor_target, f"./{path}/DDPG_" + str(epoch) + f"_{fitness:.4f}" + ".pth")

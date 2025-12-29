@@ -4,6 +4,7 @@ from matplotlib.animation import FuncAnimation
 import torch
 import BasicTrain
 import matplotlib.animation
+from Simulation import Dog2, Dog
 
 
 class MinimalVisualizer:
@@ -182,6 +183,98 @@ class MinimalVisualizer2:
         plt.pause(pause_time)
 
 
+class MinimalVisualizer3:
+    """
+    Минималистичная версия для быстрой визуализации.
+    """
+
+    def __init__(self, field_size=10.0):
+        self.field_size = field_size
+        self.fig, self.ax = plt.subplots(figsize=(10, 10))
+
+        self.ax.set_xlim(-field_size / 2, field_size / 2)
+        self.ax.set_ylim(-field_size / 2, field_size / 2)
+        self.ax.set_aspect('equal')
+        self.ax.grid(True, alpha=0.3)
+
+        # Объекты
+        self.dog_rect = None
+        self.target_circle = None
+        self.enemy_triangles = []
+        self.info_text = None
+
+    def update(self, dog: Dog2, target=None, enemies=None, step=0, reward=0, feeder=None, drinking_bowl=None):
+        """Быстрое обновление."""
+        # Очистка
+        self.clear()
+
+        if enemies is not None:
+            for enemy in enemies:
+                e = plt.Rectangle((enemy.position[0] - enemy.size / 2, enemy.position[1] - enemy.size / 2),
+                                         enemy.size, enemy.size, color='orange', alpha=0.6)
+                self.ax.add_patch(e)
+                self.enemy_triangles.append(e)
+
+        # Цель
+        if target is not None:
+            if hasattr(target, 'active') and target.active:
+                self.target_circle = plt.Circle(
+                    (target.position[0], target.position[1]),
+                    target.radius, color='red', alpha=0.7
+                )
+                self.ax.add_patch(self.target_circle)
+
+        if feeder is not None:
+            f = plt.Rectangle((feeder.position[0] - feeder.size / 2, feeder.position[1] - feeder.size / 2),
+                              feeder.size, feeder.size, color='brown', alpha=0.6)
+            self.ax.add_patch(f)
+
+        if drinking_bowl is not None:
+            d = plt.Rectangle((drinking_bowl.position[0] - drinking_bowl.size / 2, drinking_bowl.position[1] - drinking_bowl.size / 2),
+                              drinking_bowl.size, drinking_bowl.size, color='blue', alpha=0.6)
+            self.ax.add_patch(d)
+
+        # Собака
+        self.dog_rect = plt.Rectangle(
+            (dog.position[0] - dog.size / 2, dog.position[1] - dog.size / 2),
+            dog.size, dog.size,
+            color='blue', alpha=0.7
+        )
+        self.ax.add_patch(self.dog_rect)
+
+        # Информация
+        info = f"Step: {step}\nReward: {reward:.2f}"
+        if target is not None:
+            info += f"\nTarget: {target.id}"
+        if feeder is not None:
+            info += f"\nSatiety: {dog.satiety}"
+        if drinking_bowl is not None:
+            info += f"\nThirst: {dog.thirst}"
+        if self.info_text:
+            self.info_text.remove()
+
+        self.info_text = self.ax.text(
+            0.02, 0.98, info, transform=self.ax.transAxes,
+            verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.7)
+        )
+
+    def clear(self):
+        """Быстрая очистка."""
+        if self.dog_rect:
+            self.dog_rect.remove()
+        if self.target_circle:
+            self.target_circle.remove()
+        for triangle in self.enemy_triangles:
+            triangle.remove()
+        self.enemy_triangles = []
+
+    def show(self, pause_time=0.01):
+        """Быстрый показ."""
+        plt.draw()
+        plt.pause(pause_time)
+
+
 class SimpleAnimation:
     """
     Простая анимация для симуляции в реальном времени.
@@ -209,8 +302,10 @@ class SimpleAnimation:
         # Создаем визуализатор
         if env.__class__.__name__ == "Environment":
             self.visualizer = MinimalVisualizer(field_size=env.field_size)
-        else:
+        elif self.env.__class__.__name__ == "Environment2":
             self.visualizer = MinimalVisualizer2(field_size=env.field_size)
+        elif self.env.__class__.__name__ == "Environment3":
+            self.visualizer = MinimalVisualizer3(field_size=env.field_size)
 
         self.is_done = False
         self.current_step = 0
@@ -268,12 +363,21 @@ class SimpleAnimation:
                 step=frame,
                 fitness=reward
             )
-        else:
+        elif self.env.__class__.__name__ == "Environment2":
             self.visualizer.update(
                 self.dog, self.target,
                 enemies=self.env.enemies,
                 step=frame,
                 reward=reward
+            )
+        elif self.env.__class__.__name__ == "Environment3":
+            self.visualizer.update(
+                self.dog, self.target,
+                enemies=self.env.enemies,
+                step=frame,
+                reward=reward,
+                feeder=self.env.feeder,
+                drinking_bowl=self.env.drinking_bowl,
             )
 
         # Сохраняем историю

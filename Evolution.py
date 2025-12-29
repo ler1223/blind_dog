@@ -256,7 +256,8 @@ class EvolutionaryAlgorithm:
                  device='cpu',
                  render=True,
                  init_population=None,
-                 save_animation_gen_dir="anim_generation"):
+                 path_save_anim=None,
+                 path_save_model=None):
 
         self.population_size = population_size
         self.generations = generations
@@ -266,7 +267,8 @@ class EvolutionaryAlgorithm:
         self.species_target = species_target
         self.device = device
         self.render = render
-        self.save_animation_gen_dir = save_animation_gen_dir
+        self.path_save_anim = path_save_anim
+        self.path_save_model = path_save_model
 
         # Инициализация популяции
         self.network_template = network_template
@@ -483,8 +485,19 @@ class EvolutionaryAlgorithm:
                 # 5. Видообразование
                 self._speciate()
             best_individual = max(self.population, key=lambda x: x.fitness)
-            Visualizer.animation(best_individual, simulation_env, render=self.render, device=self.device,
-                                 save_path=self.save_animation_gen_dir+f"/generation_{gen}")
+            if gen % 100 == 0:
+                if self.path_save_anim is None:
+                    path = "anim_generation"
+                else:
+                    path = self.path_save_anim
+                Visualizer.animation(best_individual, env=simulation_env, device="cuda",
+                                     render=False, save_path=path + "/DDPG_epoch_" + str(gen))
+
+                if self.path_save_model is None:
+                    path = "pretraining_model"
+                else:
+                    path = self.path_save_model
+                torch.save(best_individual.network, f"./{path}/DDPG_" + str(gen) + ".pth")
 
         # Возвращаем лучшего индивидуума
         best_individual = max(self.population, key=lambda x: x.fitness)
