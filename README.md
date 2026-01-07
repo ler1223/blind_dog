@@ -50,6 +50,33 @@
   </tr>
 </table>
 
+<div align="center"><h3>Лучшее(пока) решение третьей симуляции</h3></div>
+У меня не получалось обучить модель в лоб, из-за этого я дошел до варианта Smart Actor. Изначально были обучены маленькие модели на одиночные задачи (target, enemy, nutrition далее skills). После обучался Smart Actor который учился смешивать действия skills.
+
+<div align="center">Pre-traning skills</div>
+<table align="center">
+  <tr>
+    <td align="center">
+      <img src="./preview/sim3/pretraining_skills/target/DDPG_epoch_1300.gif" width="300"><br>
+      <small>Target, hiden_dim = 64, epoch = 1300</small>
+    </td>
+    <td align="center">
+      <img src="./preview/sim3/pretraining_skills/enemy/DDPG_epoch_2500.gif" width="300"><br>
+      <small>Enemy, hiden_dim = 64, epoch = 2500</small>
+    </td>
+    <td align="center">
+      <img src="./preview/sim3/pretraining_skills/nutrition/DDPG_epoch_2800.gif" width="300"><br>
+      <small>Nutrition, hiden_dim = 64, epoch = 2800</small>
+    </td>
+  </tr>
+</table>
+
+<div align="center">
+  <img src="./preview/sim3/comb_model/DDPG_epoch_15000.gif" width="500"><br>
+  <small>Smart Agent, hiden_dim = 256, epoch = 15000</small>
+</div>
+<br><br><br>
+
 !!!Важно для работы с cuda надо установить саму cuda а также pytorch с потдержкой cuda.!!!
 
 ***Simulation***
