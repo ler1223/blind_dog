@@ -7,6 +7,7 @@ import DDPG
 import TD3
 import PPO
 import argparse
+import smartAgent
 
 
 def start_evolution_algorithm(env):
@@ -75,14 +76,14 @@ def start_combined_algorithm(env, population_size=10):
 def start_ddpg(env, epoch=100):
     print("start DDPG")
     state_size = env.get_state_size()
-    ddpg = DDPG.DDPG(gamma=0.99, tau=0.003, hidden_size=256, state_size=state_size, action_size=2, batch_size=32, device="cuda", count_last_states=1, path_save_anim="DDPG/anim", path_save_model="DDPG/model")
+    ddpg = DDPG.DDPG(gamma=0.99, tau=0.001, hidden_size=512, state_size=state_size, action_size=2, batch_size=64, device="cuda", count_last_states=1, path_save_anim="DDPG/anim", path_save_model="DDPG/model")
     ddpg.train(env=env, epochs=epoch, count_steps=300)
 
 
 def start_td3(env, epoch=100):
     print("start td3")
     state_size = env.get_state_size()
-    td3 = TD3.TD3(gamma=0.5, tau=0.001, hidden_size=256, state_size=state_size, action_size=2, batch_size=32, device="cuda", count_last_states=1, policy_update_freq=2, policy_noise=0.1, path_save_anim="td3/anim", path_save_model="td3/model")
+    td3 = TD3.TD3(gamma=0.9, tau=0.001, hidden_size=512, state_size=state_size, action_size=2, batch_size=64, device="cuda", count_last_states=1, policy_update_freq=2, policy_noise=0.3, path_save_anim="td3/anim", path_save_model="td3/model")
     # td3.load_actor("sim2_model/DDPG_10000_-10.1044.pth")
     td3.train(env=env, epochs=epoch, count_steps=300)
 
@@ -93,18 +94,89 @@ def save_model_run(env, path, count_steps):
     Visualizer.animation(individual=individual, env=env, device="cuda", render=True, count_steps=count_steps)
 
 
-def start_td3_sim3(env, epoch=100):
-    td3 = TD3.TD3(gamma=0.5, tau=0.001, hidden_size=512, state_size=32, action_size=2, batch_size=256, device="cuda", count_last_states=3, policy_update_freq=1, policy_noise=0.3, path_save_anim="td3/anim", path_save_model="td3/model")
-    # td3.load_actor("sim3_2/DDPG_12900_0.4655.pth")
-    td3.train(env=env, epochs=epoch, count_steps=400)
+def start_new_PPOt(env, epoch=100):
+    env = Simulation.Environment3(50, 0, flag_target=True, flag_nutrition=False)
+    state_size = env.get_state_size()
+    ppo = PPO.PPO(gamma=0.9, gae_lambda=0.95, hidden_size=64, state_size=state_size, action_size=2, batch_size=128,
+                  device="cuda", count_last_states=1, trajectory_length=512, count_retrain=1,
+                  path_save_anim="PPO/PPOt/anim", path_save_model="PPO/PPOt/model")
+
+    ppo.train(env=env, epochs=epoch, count_steps=400)
+
+
+def start_new_PPOe(env, epoch=100):
+    env = Simulation.Environment3(50, 4, flag_target=False, flag_nutrition=False)
+    state_size = env.get_state_size()
+    ppo = PPO.PPO(gamma=0.9, gae_lambda=0.95, hidden_size=64, state_size=state_size, action_size=2, batch_size=128,
+                  device="cuda", count_last_states=1, trajectory_length=512, count_retrain=1,
+                  path_save_anim="PPO/PPOe/anim", path_save_model="PPO/PPOe/model")
+
+    ppo.train(env=env, epochs=epoch, count_steps=400)
+
+
+def start_new_PPOn(env, epoch=100):
+    env = Simulation.Environment3(50, 0, flag_target=False, flag_nutrition=True)
+    state_size = env.get_state_size()
+    # ppo = PPO.PPO(gamma=0.99, gae_lambda=0.97, hidden_size=64, state_size=state_size, action_size=2, batch_size=64,
+    #               device="cuda", count_last_states=1, trajectory_length=1024, count_retrain=10,
+    #               path_save_anim="PPO/PPOn/anim", path_save_model="PPO/PPOn/model")
+    ppo = PPO.SimplePPO(gamma=0.99, gae_lambda=0.95, hidden_size=32, state_size=state_size, action_size=2, batch_size=16,
+                   device="cuda", trajectory_length=300, count_retrain=10,
+                   path_save_anim="PPO/PPOn/anim", path_save_model="PPO/PPOn/model")
+    ppo.train(env=env, epochs=epoch, eval_interval=100)
+
+
+def start_DDPGn(env, epoch=100):
+    env = Simulation.Environment3(50, 0, flag_target=False, flag_nutrition=True)
+    state_size = env.get_state_size()
+    ddpg = DDPG.DDPG(gamma=0.9, tau=0.001, hidden_size=64, state_size=state_size, action_size=2, batch_size=32,
+                  device="cuda", count_last_states=1, path_save_anim="PPO/PPOn/anim", path_save_model="PPO/PPOn/model")
+
+    ddpg.train(env=env, epochs=epoch, count_steps=400)
+
+
+def start_DDPGe(env, epoch=100):
+    env = Simulation.Environment3(50, 4, flag_target=False, flag_nutrition=False)
+    state_size = env.get_state_size()
+    ddpg = DDPG.DDPG(gamma=0.9, tau=0.001, hidden_size=64, state_size=state_size, action_size=2, batch_size=128,
+                  device="cuda", count_last_states=1, path_save_anim="PPO/PPOe/anim", path_save_model="PPO/PPOe/model")
+
+    ddpg.train(env=env, epochs=epoch, count_steps=400)
+
+
+def start_DDPGt(env, epoch=100):
+    env = Simulation.Environment3(50, 0, flag_target=True, flag_nutrition=False)
+    state_size = env.get_state_size()
+    ddpg = DDPG.DDPG(gamma=0.9, tau=0.001, hidden_size=64, state_size=state_size, action_size=2, batch_size=128,
+                  device="cuda", count_last_states=1, path_save_anim="PPO/PPOt/anim", path_save_model="PPO/PPOt/model")
+    ddpg.train(env=env, epochs=epoch, count_steps=400)
 
 
 def start_PPO(env, epoch=100):
     print("start PPO")
     state_size = env.get_state_size()
-    ppo = PPO.PPO(gamma=0.99, gae_lambda=0.95, hidden_size=512, state_size=state_size, action_size=2, batch_size=64, device="cuda", count_last_states=1, policy_update_freq=2, count_retrain=10, path_save_anim="PPO/anim", path_save_model="PPO/model")
+    ppo = PPO.PPO(gamma=0.99, gae_lambda=0.95, hidden_size=512, state_size=state_size, action_size=2, batch_size=32, device="cuda", count_last_states=1, trajectory_length=4096, count_retrain=5, path_save_anim="PPO/anim", path_save_model="PPO/model")
     # td3.load_actor("sim3_2/DDPG_12900_0.4655.pth")
-    ppo.train(env=env, epochs=epoch, count_steps=400)
+    ppo.train(env=env, epochs=epoch, count_steps=600)
+
+
+def comb_sim3_ddpg(epoch=101):
+    print("comb_sim3_DDPG")
+    env = Simulation.Environment3(
+        field_size=50.0, count_enemy=4, dict_reward={"enemy": 0.25,
+                                                     "target": 2,
+                                                     "nutrition": 1}
+    )
+    state_size = env.get_state_size()
+    pretrained_skill = {"target":  torch.load("./pretraining_skils_sim3_ddpg/DDPGt.pth", weights_only=False),
+                        "enemy":  torch.load("./pretraining_skils_sim3_ddpg/DDPGe.pth", weights_only=False),
+                        "nutrition":  torch.load("./pretraining_skils_sim3_ddpg/DDPGn.pth", weights_only=False)}
+    actor = smartAgent.SimpleHierarchicalActor(pretrained_skills=pretrained_skill, state_size=state_size, hidden_size=128)
+    ddpg = DDPG.DDPG(gamma=0.9, tau=0.001, actor=actor, hidden_size=256, state_size=state_size, action_size=2, batch_size=64,
+                     device="cuda", count_last_states=1, path_save_anim="pretraining_skils_sim3_ddpg/anim",
+                     path_save_model="pretraining_skils_sim3_ddpg/model")
+    ddpg.load_actor("pretraining_skils_sim3_ddpg/DDPG_15500_50.3094.pth")
+    ddpg.train(env=env, epochs=epoch, count_steps=400)
 
 
 if __name__ == '__main__':
@@ -146,5 +218,19 @@ if __name__ == '__main__':
         start_td3(env, int(args.epoch))
     elif args.algorithm == "PPO":
         start_PPO(env, int(args.epoch))
+    elif args.algorithm == "PPOe":
+        start_new_PPOe(env, int(args.epoch))
+    elif args.algorithm == "PPOn":
+        start_new_PPOn(env, int(args.epoch))
+    elif args.algorithm == "PPOt":
+        start_new_PPOt(env, int(args.epoch))
+    elif args.algorithm == "DDPGe":
+        start_DDPGe(env, int(args.epoch))
+    elif args.algorithm == "DDPGn":
+        start_DDPGn(env, int(args.epoch))
+    elif args.algorithm == "DDPGt":
+        start_DDPGt(env, int(args.epoch))
+    elif args.algorithm == "cDDPG3":
+        comb_sim3_ddpg(int(args.epoch))
     else:
         exit(0)

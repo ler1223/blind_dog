@@ -3,6 +3,7 @@ import torch.nn as nn
 import Evolution
 import Visualizer
 from collections import deque, namedtuple
+from copy import deepcopy
 import random
 
 Experience = namedtuple('Experience',
@@ -174,7 +175,7 @@ class CriticNetwork(nn.Module):
 
 
 class DDPG:
-    def __init__(self, gamma, tau, hidden_size, state_size, action_size, device="cpu", batch_size=32, count_last_states=1, path_save_anim=None, path_save_model=None):
+    def __init__(self, gamma, tau, hidden_size, state_size, action_size, device="cpu", batch_size=32, count_last_states=1, path_save_anim=None, path_save_model=None, actor=None):
         self.gamma = gamma
         self.tau = tau
         self.action_size = action_size
@@ -187,8 +188,12 @@ class DDPG:
 
         self.encoder = LSTMEncoder(state_dim=state_size, hidden_size=hidden_size)
         # Define the actor
-        self.actor = ActorNetwork(encoder=self.encoder, input_size=state_size, hidden_size=hidden_size, output_size=action_size, lstm=self.lstm).to(self.device)
-        self.actor_target = ActorNetwork(encoder=self.encoder, input_size=state_size, hidden_size=hidden_size, output_size=action_size, lstm=self.lstm).to(self.device)
+        if actor is None:
+            self.actor = ActorNetwork(encoder=self.encoder, input_size=state_size, hidden_size=hidden_size, output_size=action_size, lstm=self.lstm).to(self.device)
+            self.actor_target = ActorNetwork(encoder=self.encoder, input_size=state_size, hidden_size=hidden_size, output_size=action_size, lstm=self.lstm).to(self.device)
+        else:
+            self.actor = actor.to(self.device)
+            self.actor_target = deepcopy(actor).to(self.device)
 
         # Define the critic
         self.critic = CriticNetwork(encoder=self.encoder, state_size=state_size, action_size=action_size, hidden_size=hidden_size, output_size=1, lstm=self.lstm).to(device)
@@ -219,6 +224,9 @@ class DDPG:
         action = action.clamp(-1, 1)
 
         return action
+
+    def load_actor(self, path):
+        self.actor = torch.load(path, weights_only=False)
 
     def update_params(self):
         """
@@ -252,7 +260,7 @@ class DDPG:
         reward_batch = reward_batch.unsqueeze(1)
         expected_values = reward_batch + self.gamma * next_state_action_values
 
-        expected_values = torch.clamp(expected_values, -1000, 1000)
+        expected_values = torch.clamp(expected_values, -40, 40)
 
         # Update the critic network
         self.critic_optimizer.zero_grad()

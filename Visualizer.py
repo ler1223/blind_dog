@@ -203,7 +203,7 @@ class MinimalVisualizer3:
         self.enemy_triangles = []
         self.info_text = None
 
-    def update(self, dog: Dog2, target=None, enemies=None, step=0, reward=0, feeder=None, drinking_bowl=None):
+    def update(self, dog: Dog2, target=None, enemies=None, step=0, reward=0, feeder=None, drinking_bowl=None, action=None, flag_nutrition=True):
         """Быстрое обновление."""
         # Очистка
         self.clear()
@@ -217,19 +217,19 @@ class MinimalVisualizer3:
 
         # Цель
         if target is not None:
-            if hasattr(target, 'active') and target.active:
+            if target.active:
                 self.target_circle = plt.Circle(
                     (target.position[0], target.position[1]),
                     target.radius, color='red', alpha=0.7
                 )
                 self.ax.add_patch(self.target_circle)
 
-        if feeder is not None:
+        if feeder is not None and flag_nutrition:
             f = plt.Rectangle((feeder.position[0] - feeder.size / 2, feeder.position[1] - feeder.size / 2),
                               feeder.size, feeder.size, color='brown', alpha=0.6)
             self.ax.add_patch(f)
 
-        if drinking_bowl is not None:
+        if drinking_bowl is not None and flag_nutrition:
             d = plt.Rectangle((drinking_bowl.position[0] - drinking_bowl.size / 2, drinking_bowl.position[1] - drinking_bowl.size / 2),
                               drinking_bowl.size, drinking_bowl.size, color='blue', alpha=0.6)
             self.ax.add_patch(d)
@@ -243,12 +243,14 @@ class MinimalVisualizer3:
         self.ax.add_patch(self.dog_rect)
 
         # Информация
-        info = f"Step: {step}\nReward: {reward:.2f}"
-        if target is not None:
+        info = f"Step: {step} \nReward: {reward:.2f}"
+        if action is not None:
+            info += f"\nAction: {action}"
+        if target is not None and target.active:
             info += f"\nTarget: {target.id}"
-        if feeder is not None:
+        if feeder is not None and flag_nutrition:
             info += f"\nSatiety: {dog.satiety}"
-        if drinking_bowl is not None:
+        if drinking_bowl is not None and flag_nutrition:
             info += f"\nThirst: {dog.thirst}"
         if self.info_text:
             self.info_text.remove()
@@ -280,7 +282,7 @@ class SimpleAnimation:
     Простая анимация для симуляции в реальном времени.
     """
 
-    def __init__(self, env, dog, individual, target, steps=200, interval=50, device="cpu"):
+    def __init__(self, env, dog, individual, target, steps=200, interval=50, device="cpu", get_action=False):
         """
         Инициализация анимации.
 
@@ -298,6 +300,7 @@ class SimpleAnimation:
         self.steps = steps
         self.interval = interval
         self.device = device
+        self.get_action = get_action
 
         # Создаем визуализатор
         if env.__class__.__name__ == "Environment":
@@ -347,7 +350,10 @@ class SimpleAnimation:
         with torch.no_grad():
             state = self.env.get_state(self.dog, self.target)
             state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
-            predict = self.individual.network.forward(state)
+            if self.get_action:
+                predict = self.individual.network.get_action(state).squeeze(0)
+            else:
+                predict = self.individual.network.forward(state)
             if self.device == "cuda":
                 predict = predict.cpu()
             accelerate = predict.squeeze(0)
@@ -378,6 +384,8 @@ class SimpleAnimation:
                 reward=reward,
                 feeder=self.env.feeder,
                 drinking_bowl=self.env.drinking_bowl,
+                action=predict,
+                flag_nutrition=self.env.flag_nutrition
             )
 
         # Сохраняем историю
@@ -409,7 +417,7 @@ class SimpleAnimation:
         plt.close(self.visualizer.fig)
 
 
-def animation(individual, env, interval_animation=10, device="cpu", count_steps=200, render=True, save_path=None):
+def animation(individual, env, interval_animation=10, device="cpu", count_steps=200, render=True, save_path=None, get_action=False):
     """Демонстрация анимации."""
     print("\n=== Simple Animation ===")
     dog, target = env.reset()
@@ -422,7 +430,8 @@ def animation(individual, env, interval_animation=10, device="cpu", count_steps=
         target=target,
         steps=count_steps,
         interval=interval_animation,
-        device=device
+        device=device,
+        get_action=get_action
     )
     if render:
         print("Animation created. Showing window...")

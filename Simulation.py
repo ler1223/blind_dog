@@ -1,4 +1,5 @@
 import math
+import random
 
 import numpy as np
 import torch
@@ -593,7 +594,10 @@ class Environment3:
     def __init__(self,
                  field_size=10.0,
                  count_enemy=2,
-                 seed=None):
+                 seed=None,
+                 flag_target=True,
+                 flag_nutrition=True,
+                 dict_reward=None):
 
         self.field_size = field_size  # Размер квадратного поля (от -field_size/2 до field_size/2)
         self.seed = seed
@@ -606,6 +610,9 @@ class Environment3:
         self.states = []
         self.feeder = self.Feeder(self._random_position(), 5)
         self.drinking_bowl = self.DrinkingBowl(self._random_position(), 5)
+        self.flag_target = flag_target
+        self.flag_nutrition = flag_nutrition
+        self.dict_reward = dict_reward
 
         if seed is not None:
             np.random.seed(seed)
@@ -645,13 +652,19 @@ class Environment3:
         """
         # Создаем собаку
         self.states = []
-        dog = Dog2(position=(dog_position if dog_position is not None else self._random_position()), size=dog_size)
-        self.feeder = self.Feeder(self._random_position(), 5)
-        self.drinking_bowl = self.DrinkingBowl(self._random_position(), 5)
+        dog = Dog2(position=(dog_position if dog_position is not None else self._random_position()), velocity=torch.zeros(2), size=dog_size)
+
+        if self.flag_nutrition:
+            dog.satiety = random.randint(50, 100)
+            dog.thirst = random.randint(50, 100)
+            self.feeder = self.Feeder(self._random_position(), 3)
+            self.drinking_bowl = self.DrinkingBowl(self._random_position(), 3)
 
         self.last_position = None
-        # Создаем цели
         target = self.create_target(0)
+        if not self.flag_target:
+            target.active = False
+
         self.put_last_target = 0
         self.enemies = []
         for i in range(self.count_enemy):
@@ -659,35 +672,53 @@ class Environment3:
         return dog, target
 
     def nutrition(self, dog: Dog2):
-        reward = 0
+        reward = 0.0
+
+        hunger_level = max(0, 100 - dog.satiety) / 100
+        thirst_level = max(0, 100 - dog.thirst) / 100
+
+        dist_to_feeder = np.linalg.norm(dog.position - self.feeder.position) / self.field_size
+        dist_to_bowl = np.linalg.norm(dog.position - self.drinking_bowl.position) / self.field_size
+
+        if self.last_position is not None:
+            prev_dist_feeder = np.linalg.norm(self.last_position - self.feeder.position) / self.field_size
+            delta_dist_feeder = prev_dist_feeder - dist_to_feeder
+            prev_dist_bowl = np.linalg.norm(self.last_position - self.drinking_bowl.position) / self.field_size
+            delta_dist_bowl = prev_dist_bowl - dist_to_bowl
+            reward += 1.0 * delta_dist_feeder * hunger_level
+            reward += 1.0 * delta_dist_bowl * thirst_level
+            proximity_reward_feeder = max(0,
+                                          1.0 - dist_to_feeder * 3)
+            proximity_reward_bowl = max(0, 1.0 - dist_to_bowl * 3)
+
+            reward += 1.0 * proximity_reward_feeder * hunger_level
+            reward += 1.0 * proximity_reward_bowl * thirst_level
 
         if torch.abs(self.feeder.position[0] - dog.position[0]) < (self.feeder.size + dog.size) and \
                 torch.abs(self.feeder.position[1] - dog.position[1]) < (self.feeder.size + dog.size):
-            if dog.satiety < 60:
-                reward += math.exp(dog.satiety / 100)
-            dog.satiety += self.feeder.velocity * 5
+            dog.satiety += self.feeder.velocity * 10
+            reward += 3.0 * hunger_level
         else:
-            if dog.satiety < 30:
-                reward -= 0.3
-            dog.satiety -= self.feeder.velocity
-
-        dog.satiety = min(dog.satiety, 100)
+            dog.satiety -= self.feeder.velocity.item()
 
         if torch.abs(self.drinking_bowl.position[0] - dog.position[0]) < (self.drinking_bowl.size + dog.size) and \
                 torch.abs(self.drinking_bowl.position[1] - dog.position[1]) < (self.drinking_bowl.size + dog.size):
-            if dog.thirst < 60:
-                reward += math.exp(dog.satiety / 100)
-            dog.thirst += self.drinking_bowl.velocity * 5
+            dog.thirst += self.drinking_bowl.velocity * 10
+            reward += 3.0 * thirst_level
         else:
-            if dog.thirst < 30:
-                reward -= 0.3
-            dog.thirst -= self.drinking_bowl.velocity
+            dog.thirst -= self.drinking_bowl.velocity.item()
 
+        dog.satiety = min(dog.satiety, 100)
         dog.thirst = min(dog.thirst, 100)
 
-        done = dog.satiety <= 0 or dog.thirst <= 0
+        satiety_bonus = (dog.satiety / 100) * 0.1
+        thirst_bonus = (dog.thirst / 100) * 0.1
+        reward += satiety_bonus + thirst_bonus
 
-        return dog, reward, done
+        done = dog.satiety <= 0 or dog.thirst <= 0
+        if done:
+            reward = -10
+        return dog, float(reward), done
 
     def step(self, dog, target, acceleration, angle_acceleration, step, max_step):
         """
@@ -705,47 +736,51 @@ class Environment3:
             reward: Награда за шаг.
             done: всегда True
         """
+        done = False
+
         dog.velocity *= self.velocity_damping
         dog.angle_velocity *= self.angular_damping
-
         dog.angle_acceleration = angle_acceleration
         dog.angle_velocity += dog.angle_acceleration * 0.5
         dog.angle_velocity = torch.clip(dog.angle_velocity, -0.7, 0.7)
         dog.angle += dog.angle_velocity * 0.5
         dog.angle = (dog.angle + math.pi) % (2 * math.pi) - math.pi
-
         dog.acceleration = torch.cat((torch.cos(dog.angle) * acceleration, torch.sin(dog.angle) * acceleration))
-
-        distance_to_target = np.linalg.norm(target.position - dog.position)
-
-        # Применяем ускорение (с ограничением)
-        dog.acceleration = torch.clip(dog.acceleration, -1, 1) * 2.0
-
-        # Обновляем скорость
+        dog.acceleration = torch.clip(dog.acceleration, -1, 1)
         dog.velocity += dog.acceleration * 0.5
-
-        # Ограничиваем максимальную скорость
         speed = np.linalg.norm(dog.velocity)
         if speed > dog.max_speed:
             dog.velocity = (dog.velocity / speed) * dog.max_speed
-
-        # Обновляем позицию
         dog.position += dog.velocity * 0.5
 
-        # Проверяем столкновения с границами
+        reward = 0.0
+
         collision = self._check_boundary_collision(dog)
         target_reached = False
+        if self.count_enemy > 0:
+            collision_enemies, enemy_reward = self.update_enemies(dog)
+            if collision_enemies:
+                reward -= 10
+                done = True
+                return dog, target, reward, done
+            else:
+                if self.dict_reward is not None and hasattr(self.dict_reward, 'enemy'):
+                    reward += enemy_reward * self.dict_reward["enemy"]
+                else:
+                    reward += enemy_reward
 
-        collision_enemies, enemy_reward = self.update_enemies(dog)
-
-        dog, reward_nutrition, done_nutrition = self.nutrition(dog)
-
-        reward = 0.0
-        reward += reward_nutrition
-        reward += 0.002 * step
+        if self.flag_nutrition:
+            dog, reward_nutrition, done_nutrition = self.nutrition(dog)
+            if self.dict_reward is not None and hasattr(self.dict_reward, 'nutrition'):
+                reward += reward_nutrition * self.dict_reward["nutrition"]
+            else:
+                reward += reward_nutrition
+            done = done or done_nutrition
 
         if target.active:
             distance = np.linalg.norm(target.position - dog.position)
+            distance_norm = distance / self.field_size
+            target_reward = 0
 
             if distance < (dog.size + target.radius):
                 target_reached = True
@@ -757,36 +792,29 @@ class Environment3:
                     max_possible_progress = dog.max_speed * 0.5
                     normalized_progress = progress / (max_possible_progress + 1e-8)
 
-                    reward += 0.1 * normalized_progress
-                    reward -= 0.1 * distance / self.field_size
+                    target_reward += 0.01 * normalized_progress
+                target_reward += 0.2 * (1 - distance_norm) * np.exp(-distance_norm * 2)
+
+            if target_reached and self.flag_target:
+                target_reward += 10
+                target = self.create_target(target.id + 1)
+
+            if self.dict_reward is not None and hasattr(self.dict_reward, 'target'):
+                reward += target_reward * self.dict_reward["target"]
+            else:
+                reward += target_reward
 
         self.last_position = dog.position.clone()
 
-        if target_reached:
-            reward += 4
-            target = self.create_target(target.id + 1)
-            self.put_last_target = step
-
         # Штраф за столкновение с границей
         if collision:
-            reward -= 0.5 * np.linalg.norm(dog.velocity)
-
-        done = False
-        if collision_enemies:
-            reward -= 30
-            done = True
-            return dog, target, reward, done
-        else:
-            reward += enemy_reward / 10
+            reward -= 0.3 + 0.2 * np.linalg.norm(dog.velocity)
 
         speed_norm = speed / dog.max_speed
         if speed_norm < 0.1 and abs(angle_acceleration) < 0.1:
             reward -= 0.01
 
-        movement_efficiency = speed_norm / (abs(acceleration) + 0.1)
-        reward += 0.001 * movement_efficiency
-
-        return dog, target, reward, done or done_nutrition
+        return dog, target, float(reward), done
 
     def _random_position(self):
         """Генерирует случайную позицию внутри поля."""
@@ -852,29 +880,28 @@ class Environment3:
                 collision_dog = True
 
             distance_to_enemy = torch.norm(enemy.position - dog.position)
-            if distance_to_enemy <= enemy.size * 3:  # Опасная зона
+            if distance_to_enemy <= enemy.size * 2:  # Опасная зона
                 # Экспоненциальный штраф за приближение
-                danger_factor = (enemy.size * 3 - distance_to_enemy) / (enemy.size * 3)
-                enemy_reward -= 1.0 * torch.exp(danger_factor * 3)  # Экспоненциальный рост
+                danger_factor = (enemy.size * 2 - distance_to_enemy) / (enemy.size * 2)
+                enemy_reward -= 0.5 * torch.exp(danger_factor)  # Экспоненциальный рост
 
-            elif distance_to_enemy < enemy.size * 8:  # Буферная зона
+            elif distance_to_enemy < enemy.size * 6:  # Буферная зона
                 # Небольшая награда за поддержание безопасной дистанции
                 normalized_dist = (distance_to_enemy - enemy.size * 4) / (enemy.size * 4)
-                enemy_reward += 0.1 * normalized_dist  # Линейная награда
-
+                enemy_reward += 0.1 * torch.exp(normalized_dist)  # Линейная награда
             else:  # Безопасная зона
                 # Маленькая награда за нахождение в безопасности
-                enemy_reward += 0.05
+                enemy_reward += 0.2
 
         return collision_dog, float(enemy_reward)
 
     def get_enemy_position(self, dog, count=4):
         enemies_position = []
         for enemy in self.enemies:
-            enemy_pos = enemy.position.numpy() / self.field_size / 2
+            enemy_pos = enemy.position.numpy() / (self.field_size / 2)
             # Вектор к цели (относительный)
             to_enemy = enemy.position - dog.position
-            norm_to_enemy = to_enemy.numpy() / self.field_size  # Нормализация
+            norm_to_enemy = to_enemy.numpy() / self.field_size # Нормализация
             distance = torch.norm(to_enemy).item() / self.field_size
             enemies_position.append((enemy_pos, norm_to_enemy, distance, enemy.velocity / dog.max_speed))
 
@@ -919,7 +946,7 @@ class Environment3:
         boundary_y = (half_field - abs(dog.position[1].item())) / half_field
 
         result = torch.FloatTensor([
-            dog.satiety, dog.thirst,
+            dog.satiety / 100, dog.thirst / 100,
             dog_pos[0], dog_pos[1],
             dog_vel[0], dog_vel[1],
             angle_sin, angle_cos,
@@ -930,8 +957,8 @@ class Environment3:
             boundary_x, boundary_y
         ])
 
-        to_feeder = self.feeder.position - dog.position / self.field_size
-        to_drink = self.feeder.position - dog.position / self.field_size
+        to_feeder = (self.feeder.position - dog.position) / self.field_size
+        to_drink = (self.drinking_bowl.position - dog.position) / self.field_size
         nutrition_position = torch.FloatTensor([
             self.feeder.position[0] / half_field, self.feeder.position[1] / half_field,
             self.drinking_bowl.position[0] / half_field, self.drinking_bowl.position[1] / half_field,
